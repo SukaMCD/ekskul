@@ -47,6 +47,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('Webhook error:', error);
+    try {
+      const { logBotMessage } = await import('@/lib/wablas');
+      await logBotMessage('system', 'inbound', 'error', `Webhook Server Error: ${error.message}`, error.stack || '', 'failed');
+    } catch {}
     return new NextResponse(`Error: ${error.message}`, { status: 200 }); // Wablas requires 200 to avoid retries
   }
 }

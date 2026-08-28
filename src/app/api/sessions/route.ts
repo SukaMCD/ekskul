@@ -51,3 +51,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: false, message: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  const user = getSessionUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const phone = searchParams.get('phone');
+
+    await connectDB();
+    if (phone) {
+      const normPhone = normalizePhone(phone);
+      await BotSession.deleteOne({ phone: normPhone });
+      return NextResponse.json({ status: true, message: `Sesi nomor ${normPhone} berhasil direset` });
+    } else {
+      await BotSession.deleteMany({});
+      return NextResponse.json({ status: true, message: 'Semua sesi percakapan berhasil dibersihkan' });
+    }
+  } catch (error: any) {
+    return NextResponse.json({ status: false, message: error.message }, { status: 500 });
+  }
+}
