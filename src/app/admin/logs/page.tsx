@@ -391,8 +391,9 @@ export default function AdminLogsPage() {
                 <tr>
                   <th className="px-4 py-3 font-semibold">WAKTU</th>
                   <th className="px-4 py-3 font-semibold">ARAH</th>
+                  <th className="px-4 py-3 font-semibold">HTTP / CODE</th>
                   <th className="px-4 py-3 font-semibold">NOMOR HP</th>
-                  <th className="px-4 py-3 font-semibold">ISI PESAN / RESPON</th>
+                  <th className="px-4 py-3 font-semibold">ISI PESAN / RESPON SERVER</th>
                   <th className="px-4 py-3 font-semibold">STATUS</th>
                   <th className="px-4 py-3 font-semibold text-center">PAYLOAD</th>
                 </tr>
@@ -400,14 +401,14 @@ export default function AdminLogsPage() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
                       <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-600" />
                       <span>Memuat riwayat log...</span>
                     </td>
                   </tr>
                 ) : logs.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
                       <div className="max-w-md mx-auto space-y-2">
                         <Info className="w-8 h-8 text-slate-300 mx-auto" />
                         <p className="font-semibold text-slate-600">Belum ada pesan yang tercatat dalam log.</p>
@@ -421,6 +422,7 @@ export default function AdminLogsPage() {
                   logs.map((log) => {
                     const isError = log.status === 'failed' || log.status === 'error';
                     const isIgnored = log.status?.includes('ignored') || log.status?.includes('paused');
+                    const code = log.statusCode || (isError ? 500 : 200);
 
                     return (
                       <tr
@@ -457,6 +459,17 @@ export default function AdminLogsPage() {
                             )}
                           </span>
                         </td>
+                        <td className="px-4 py-3 whitespace-nowrap font-mono">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              code === 200 || code === '200'
+                                ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                                : 'bg-rose-100 text-rose-700 border border-rose-300 font-black'
+                            }`}
+                          >
+                            {code}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 font-mono font-bold text-slate-800 whitespace-nowrap">
                           {log.phone || 'system'}
                         </td>
@@ -472,6 +485,11 @@ export default function AdminLogsPage() {
                           >
                             {log.messageBody || '_(Kosong)_'}
                           </p>
+                          {log.errorMessage && (
+                            <p className="text-[10px] text-rose-600 font-mono font-semibold mt-1 flex items-center gap-1">
+                              <span>⚠️ Error: {log.errorMessage}</span>
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span
@@ -622,7 +640,7 @@ export default function AdminLogsPage() {
             <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm sm:text-base flex items-center gap-2">
-                  <span>Detail Payload Log</span>
+                  <span>Detail Log Pesan & Response API</span>
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
                       selectedLog.direction === 'inbound' ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'
@@ -630,10 +648,19 @@ export default function AdminLogsPage() {
                   >
                     {selectedLog.direction?.toUpperCase()}
                   </span>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+                      selectedLog.statusCode === 200 || selectedLog.statusCode === '200'
+                        ? 'bg-slate-100 text-slate-700'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    HTTP {selectedLog.statusCode || (selectedLog.status === 'failed' ? 500 : 200)}
+                  </span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Nomor: <span className="font-mono font-bold text-slate-700">{selectedLog.phone}</span> |{' '}
-                  {new Date(selectedLog.createdAt).toLocaleString('id-ID')}
+                  Nomor: <span className="font-mono font-bold text-slate-700">{selectedLog.phone || 'system'}</span> |{' '}
+                  Waktu: {new Date(selectedLog.createdAt).toLocaleString('id-ID')}
                 </p>
               </div>
 
@@ -647,6 +674,16 @@ export default function AdminLogsPage() {
 
             {/* Modal Body */}
             <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs">
+              {selectedLog.errorMessage && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <span>Detail Pesan Error:</span>
+                  </p>
+                  <p className="font-mono text-[11px]">{selectedLog.errorMessage}</p>
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Pesan / Body:</label>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono text-slate-800 whitespace-pre-wrap">

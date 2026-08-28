@@ -105,7 +105,9 @@ export async function logBotMessage(
   messageType: string,
   messageBody: string,
   rawPayload: string = '',
-  status: string = 'success'
+  status: string = 'success',
+  statusCode: number | string = 200,
+  errorMessage: string = ''
 ): Promise<void> {
   try {
     await connectDB();
@@ -116,6 +118,8 @@ export async function logBotMessage(
       messageBody,
       rawPayload,
       status,
+      statusCode,
+      errorMessage,
     });
   } catch (err) {
     console.error('Failed to log bot message:', err);
@@ -126,7 +130,7 @@ export async function sendWhatsAppMessage(
   phone: string,
   message: string,
   configs?: BotConfigMap
-): Promise<{ status: boolean; message?: string; response?: any; simulated?: boolean }> {
+): Promise<{ status: boolean; message?: string; response?: any; simulated?: boolean; statusCode?: number | string }> {
   const normPhone = normalizePhone(phone);
   if (!normPhone || !message) {
     return { status: false, message: 'Phone or message is empty' };
@@ -138,11 +142,12 @@ export async function sendWhatsAppMessage(
   const baseUrl = (cfg.wablas_url || process.env.WABLAS_DOMAIN || 'https://sby.wablas.com').replace(/\/+$/, '');
 
   if (!token) {
-    await logBotMessage(normPhone, 'outbound', 'text', message, '', 'simulated_no_token');
+    await logBotMessage(normPhone, 'outbound', 'text', message, '', 'simulated_no_token', 200, 'Token Wablas belum disetting di Pengaturan');
     return {
       status: true,
       message: 'Token not configured. Message simulated in log.',
       simulated: true,
+      statusCode: 200,
     };
   }
 
@@ -162,21 +167,28 @@ export async function sendWhatsAppMessage(
       timeout: 15000,
     });
 
-    const success = res.status >= 200 && res.status < 300;
+    const isApiOk = res.data?.status === true || res.data?.status === 'success' || res.status === 200;
+    const statusCode = res.status || 200;
+    const errMsg = res.data?.message || (res.data?.status === false ? 'Wablas API Error Response' : '');
+
     await logBotMessage(
       normPhone,
       'outbound',
       'text',
       message,
       JSON.stringify(res.data),
-      success ? 'success' : 'failed'
+      isApiOk ? 'success' : 'failed',
+      statusCode,
+      errMsg
     );
 
-    return { status: success, response: res.data };
+    return { status: isApiOk, response: res.data, statusCode, message: errMsg };
   } catch (err: any) {
+    const statusCode = err.response?.status || err.code || 500;
     const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-    await logBotMessage(normPhone, 'outbound', 'text', message, errorBody, 'failed');
-    return { status: false, message: err.message, response: err.response?.data };
+    const errMsg = err.response?.data?.message || err.message;
+    await logBotMessage(normPhone, 'outbound', 'text', message, errorBody, 'failed', statusCode, errMsg);
+    return { status: false, message: errMsg, response: err.response?.data, statusCode };
   }
 }
 
