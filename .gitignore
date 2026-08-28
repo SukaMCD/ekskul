@@ -1,0 +1,57 @@
+# Next.js & Build Output
+.next/
+out/
+build/
+dist/
+.vercel
+
+# Node Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env.local
+
+# Allow env example template
+!.env.example
+
+# PHP Composer & Writable Vendor/Caches
+vendor/
+legacy_php_ci4/vendor/
+writable/
+legacy_php_ci4/writable/
+php_errors.log
+*.log
+
+# Debug and Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Operating System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IDE / Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
