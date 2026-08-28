@@ -589,7 +589,7 @@ export async function processInboundWebhook(
     }
   }
 
-  // 8. Global Escape Keywords
+  // 8. Global Escape & Info Keywords (Active in any state)
   const currentState = session.state || 'IDLE';
 
   if (cmdLower === 'batal' || cmdLower === 'cancel' || cmdLower === 'reset') {
@@ -599,6 +599,35 @@ export async function processInboundWebhook(
     await session.save();
     await sendMsg(phone, `❌ Sesi pesanan sebelumnya telah dibatalkan.\n\nAda yang bisa kami bantu lagi? Ketik *MENU* untuk melihat katalog.`);
     return { status: true, message: 'Session reset', replies };
+  }
+
+  if (cmdLower === '1' || cmdLower === 'menu' || cmdLower === 'katalog' || cmdLower === 'daftar menu' || cmdLower === 'pricelist') {
+    session.state = 'IDLE';
+    session.tempData = {};
+    await session.save();
+    const catalog = await getFormattedMenuForBot();
+    await sendMsg(phone, catalog);
+    return { status: true, message: 'Menu catalog sent', replies };
+  }
+
+  if (cmdLower === '4' || cmdLower === 'info' || cmdLower === 'lokasi' || cmdLower === 'alamat' || cmdLower === 'jam' || cmdLower === 'rekening' || cmdLower === 'qris') {
+    let infoMsg = `ℹ️ *INFORMASI ${storeName}*\n`;
+    infoMsg += `═══════════════════════\n`;
+    infoMsg += `📍 *Alamat:* ${storeAddr}\n`;
+    if (storeGmaps) {
+      infoMsg += `🗺️ *Google Maps:* ${storeGmaps}\n`;
+    }
+    infoMsg += `⏰ *Jam Operasional:* ${storeHours}\n\n`;
+    infoMsg += `${bankInfo}\n`;
+    infoMsg += `═══════════════════════\n`;
+    infoMsg += `Ketik *MENU* untuk melihat menu, atau *ORDER* untuk pesan sekarang!`;
+    await sendMsg(phone, infoMsg);
+    return { status: true, message: 'Info sent', replies };
+  }
+
+  if (cmdLower === '3' || cmdLower.startsWith('status') || cmdLower.startsWith('cek')) {
+    await handleCheckOrderStatus(phone, text, configs, sendMsg);
+    return { status: true, message: 'Status checked', replies };
   }
 
   if (cmdLower === 'admin' || cmdLower === 'cs' || cmdLower === 'owner' || cmdLower === 'bantuan' || cmdLower === 'staf' || (currentState === 'IDLE' && cmdLower === '5')) {
@@ -613,38 +642,6 @@ export async function processInboundWebhook(
       await sendWhatsAppMessage(adminPhone, `🔔 *PELANGGAN BUTUH BANTUAN ADMIN!*\nNomor: *${dispPhone}* (${phone})\nPesan terakhir: "${text}"\n\n_Bot otomatis di-pause untuk nomor ini agar admin bisa chat langsung._`, configs);
     }
     return { status: true, message: 'Admin handoff requested', replies };
-  }
-
-  // 9. State Machine & Flow Ordering
-  if (currentState === 'IDLE') {
-    if (cmdLower === '1' || cmdLower === 'menu' || cmdLower === 'katalog' || cmdLower === 'daftar menu' || cmdLower === 'pricelist') {
-      session.state = 'IDLE';
-      session.tempData = {};
-      await session.save();
-      const catalog = await getFormattedMenuForBot();
-      await sendMsg(phone, catalog);
-      return { status: true, message: 'Menu catalog sent', replies };
-    }
-
-    if (cmdLower === '4' || cmdLower === 'info' || cmdLower === 'lokasi' || cmdLower === 'alamat' || cmdLower === 'jam' || cmdLower === 'rekening' || cmdLower === 'qris') {
-      let infoMsg = `ℹ️ *INFORMASI ${storeName}*\n`;
-      infoMsg += `═══════════════════════\n`;
-      infoMsg += `📍 *Alamat:* ${storeAddr}\n`;
-      if (storeGmaps) {
-        infoMsg += `🗺️ *Google Maps:* ${storeGmaps}\n`;
-      }
-      infoMsg += `⏰ *Jam Operasional:* ${storeHours}\n\n`;
-      infoMsg += `${bankInfo}\n`;
-      infoMsg += `═══════════════════════\n`;
-      infoMsg += `Ketik *MENU* untuk melihat menu, atau *ORDER* untuk pesan sekarang!`;
-      await sendMsg(phone, infoMsg);
-      return { status: true, message: 'Info sent', replies };
-    }
-
-    if (cmdLower === '3' || cmdLower.startsWith('status') || cmdLower.startsWith('cek')) {
-      await handleCheckOrderStatus(phone, text, configs, sendMsg);
-      return { status: true, message: 'Status checked', replies };
-    }
   }
 
   // Quick Order Shortcut: e.g. "ORDER M1 2, D1 1"
