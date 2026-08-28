@@ -151,7 +151,7 @@ export async function sendWhatsAppMessage(
     };
   }
 
-  const authHeader = secretKey && !token.includes('.') ? `${token}.${secretKey}` : token;
+  const authHeader = token.trim();
   const endpoint = `${baseUrl}/api/send-message`;
 
   try {
@@ -167,9 +167,18 @@ export async function sendWhatsAppMessage(
       timeout: 15000,
     });
 
-    const isApiOk = res.data?.status === true || res.data?.status === 'success' || res.status === 200;
+    const isApiOk =
+      res.status >= 200 &&
+      res.status < 300 &&
+      res.data?.status !== false &&
+      res.data?.status !== 'false' &&
+      res.data?.status !== 'error';
+
     const statusCode = res.status || 200;
-    const errMsg = res.data?.message || (res.data?.status === false ? 'Wablas API Error Response' : '');
+    const errMsg =
+      !isApiOk
+        ? res.data?.message || (typeof res.data === 'string' ? res.data : 'Wablas API Gagal Mengirim Pesan')
+        : '';
 
     await logBotMessage(
       normPhone,
@@ -197,7 +206,7 @@ export async function sendWhatsAppImage(
   imageUrl: string,
   caption: string = '',
   configs?: BotConfigMap
-): Promise<{ status: boolean; message?: string; response?: any; simulated?: boolean }> {
+): Promise<{ status: boolean; message?: string; response?: any; simulated?: boolean; statusCode?: number | string }> {
   const normPhone = normalizePhone(phone);
   if (!normPhone || !imageUrl) {
     return { status: false, message: 'Phone or Image URL is empty' };
@@ -205,19 +214,19 @@ export async function sendWhatsAppImage(
 
   const cfg = configs || (await getBotConfigs());
   const token = cfg.wablas_token || process.env.WABLAS_TOKEN || '';
-  const secretKey = cfg.wablas_secret || process.env.WABLAS_SECRET || '';
   const baseUrl = (cfg.wablas_url || process.env.WABLAS_DOMAIN || 'https://sby.wablas.com').replace(/\/+$/, '');
 
   if (!token) {
-    await logBotMessage(normPhone, 'outbound', 'image', `Image: ${imageUrl} | Caption: ${caption}`, '', 'simulated_no_token');
+    await logBotMessage(normPhone, 'outbound', 'image', `Image: ${imageUrl} | Caption: ${caption}`, '', 'simulated_no_token', 200, 'Token Wablas belum disetting');
     return {
       status: true,
       message: 'Token not configured. Image simulated in log.',
       simulated: true,
+      statusCode: 200,
     };
   }
 
-  const authHeader = secretKey && !token.includes('.') ? `${token}.${secretKey}` : token;
+  const authHeader = token.trim();
   const endpoint = `${baseUrl}/api/send-image`;
 
   try {
@@ -234,27 +243,41 @@ export async function sendWhatsAppImage(
       timeout: 15000,
     });
 
-    const success = res.status >= 200 && res.status < 300;
+    const isApiOk =
+      res.status >= 200 &&
+      res.status < 300 &&
+      res.data?.status !== false &&
+      res.data?.status !== 'false';
+
+    const statusCode = res.status || 200;
+    const errMsg = !isApiOk ? res.data?.message || 'Wablas Gagal Kirim Gambar' : '';
+
     await logBotMessage(
       normPhone,
       'outbound',
       'image',
       `Image: ${imageUrl} | Caption: ${caption}`,
       JSON.stringify(res.data),
-      success ? 'success' : 'failed'
+      isApiOk ? 'success' : 'failed',
+      statusCode,
+      errMsg
     );
 
-    return { status: success, response: res.data };
+    return { status: isApiOk, response: res.data, statusCode, message: errMsg };
   } catch (err: any) {
+    const statusCode = err.response?.status || err.code || 500;
     const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    const errMsg = err.response?.data?.message || err.message;
     await logBotMessage(
       normPhone,
       'outbound',
       'image',
       `Image: ${imageUrl} | Caption: ${caption}`,
       errorBody,
-      'failed'
+      'failed',
+      statusCode,
+      errMsg
     );
-    return { status: false, message: err.message, response: err.response?.data };
+    return { status: false, message: errMsg, response: err.response?.data, statusCode };
   }
 }
