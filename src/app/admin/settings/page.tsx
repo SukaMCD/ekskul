@@ -262,7 +262,7 @@ export default function AdminSettingsPage() {
         {[
           { key: 'simulator', label: 'Interactive Simulator (Sandbox)', icon: Bot },
           { key: 'general', label: 'Profil Restoran', icon: Store },
-          { key: 'wablas', label: 'Kredensial Wablas', icon: Key },
+          { key: 'wablas', label: 'Gateway WhatsApp (Fonnte / Wablas)', icon: Key },
           { key: 'templates', label: 'Template Pesan & Bank', icon: MessageSquare },
           { key: 'whitelist', label: 'Mode Whitelist', icon: Shield },
         ].map((tab) => {
@@ -278,7 +278,7 @@ export default function AdminSettingsPage() {
                   : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+              <Icon className="w-3.5 h-3.5" />
               <span>{tab.label}</span>
             </button>
           );
@@ -505,47 +505,135 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
-      {/* Tab 3: Wablas Credentials */}
+      {/* Tab 3: Gateway WhatsApp Credentials */}
       {activeTab === 'wablas' && (
         <div className="space-y-6 max-w-3xl">
+          {/* Provider Selector Card */}
           <div className="corporate-card p-6 bg-white space-y-5 text-xs">
-            <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
-              Kredensial API Gateway Wablas
-            </h2>
-
-            <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Domain Server Wablas</label>
-                <input
-                  type="text"
-                  value={configs.wablas_url || ''}
-                  onChange={(e) => handleConfigChange('wablas_url', e.target.value)}
-                  placeholder="https://sby.wablas.com (atau domain server Anda)"
-                  className="corporate-input w-full text-xs font-mono"
-                />
+                <h2 className="text-sm font-bold text-slate-900">
+                  Pilih Gateway WhatsApp Provider
+                </h2>
+                <p className="text-slate-500 text-[11px] mt-0.5">
+                  Pilih layanan gateway yang Anda gunakan untuk menghubungkan nomor WhatsApp bisnis Anda.
+                </p>
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Wablas API Token</label>
-                <input
-                  type="password"
-                  value={configs.wablas_token || ''}
-                  onChange={(e) => handleConfigChange('wablas_token', e.target.value)}
-                  placeholder="Paste token Wablas Anda di sini"
-                  className="corporate-input w-full text-xs font-mono"
-                />
+              {/* Provider Radio Pills */}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => handleConfigChange('gateway_provider', 'fonnte')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    (configs.gateway_provider || 'fonnte') === 'fonnte'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  ⭐ Fonnte (Rekomendasi)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleConfigChange('gateway_provider', 'wablas')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    configs.gateway_provider === 'wablas'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Wablas
+                </button>
               </div>
+            </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Webhook Secret Key (Opsional)</label>
-                <input
-                  type="text"
-                  value={configs.wablas_secret || ''}
-                  onChange={(e) => handleConfigChange('wablas_secret', e.target.value)}
-                  placeholder="Secret key untuk validasi payload webhook"
-                  className="corporate-input w-full text-xs font-mono"
-                />
+            {/* Provider 1: FONNTE (Default) */}
+            {(configs.gateway_provider || 'fonnte') === 'fonnte' ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+                  <h4 className="font-bold text-emerald-900 flex items-center gap-1.5">
+                    <span>💡 Cara Menghubungkan Fonnte (3 Langkah):</span>
+                  </h4>
+                  <ol className="list-decimal list-inside space-y-1 text-[11px] text-emerald-800 leading-relaxed font-medium">
+                    <li>Daftar / login akun gratis di <a href="https://fonnte.com" target="_blank" rel="noreferrer" className="font-bold underline text-emerald-900">fonnte.com</a>.</li>
+                    <li>Masuk ke menu <b>Device</b> di Fonnte lalu <b>Scan QR WhatsApp</b> Anda.</li>
+                    <li>Salin <b>API Token</b> dari menu Device Fonnte dan tempelkan pada kolom di bawah ini.</li>
+                    <li>Di pengaturan device Fonnte, masukkan <b>Webhook URL</b>: <code className="bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-mono text-[10px]">https://ekskul-iota.vercel.app/api/webhook</code></li>
+                  </ol>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Fonnte API Token <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={configs.fonnte_token || ''}
+                    onChange={(e) => handleConfigChange('fonnte_token', e.target.value)}
+                    placeholder="Contoh: a1b2c3d4e5f6g7h8..."
+                    className="corporate-input w-full text-xs font-mono font-bold"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Token ini didapatkan dari dashboard Fonnte pada halaman Device Anda.
+                  </p>
+                </div>
               </div>
+            ) : (
+              /* Provider 2: WABLAS */
+              <div className="space-y-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Domain Server Wablas</label>
+                  <input
+                    type="text"
+                    value={configs.wablas_url || ''}
+                    onChange={(e) => handleConfigChange('wablas_url', e.target.value)}
+                    placeholder="https://kudus.wablas.com (atau domain server Anda)"
+                    className="corporate-input w-full text-xs font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Wablas API Token</label>
+                  <input
+                    type="password"
+                    value={configs.wablas_token || ''}
+                    onChange={(e) => handleConfigChange('wablas_token', e.target.value)}
+                    placeholder="Paste token Wablas Anda di sini"
+                    className="corporate-input w-full text-xs font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Webhook Secret Key (Opsional)</label>
+                  <input
+                    type="text"
+                    value={configs.wablas_secret || ''}
+                    onChange={(e) => handleConfigChange('wablas_secret', e.target.value)}
+                    placeholder="Secret key untuk validasi payload webhook"
+                    className="corporate-input w-full text-xs font-mono"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Webhook Endpoint Info Box */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div>
+                <span className="text-[11px] font-bold text-slate-700 block">Webhook URL Pesan Masuk (Inbound):</span>
+                <span className="font-mono text-[11px] text-blue-600 font-bold select-all">
+                  https://ekskul-iota.vercel.app/api/webhook
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText('https://ekskul-iota.vercel.app/api/webhook');
+                  alert('Webhook URL berhasil disalin!');
+                }}
+                className="corporate-btn-secondary py-1 px-2.5 text-[11px] font-semibold shrink-0"
+              >
+                Salin Webhook URL
+              </button>
             </div>
           </div>
 

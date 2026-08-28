@@ -11,6 +11,8 @@ export interface BotConfigMap {
   store_gmaps?: string;
   store_hours?: string;
   admin_phone?: string;
+  gateway_provider?: 'fonnte' | 'wablas' | string;
+  fonnte_token?: string;
   wablas_url?: string;
   wablas_token?: string;
   wablas_secret?: string;
@@ -53,6 +55,8 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
     store_gmaps: 'https://maps.google.com/?q=-7.2575,112.7521',
     store_hours: 'Senin - Minggu: 10.00 - 22.00 WIB',
     admin_phone: '6281234567890',
+    gateway_provider: 'fonnte',
+    fonnte_token: '',
     wablas_url: 'https://sby.wablas.com',
     wablas_token: '',
     wablas_secret: 'fnb_secret_key_123',
@@ -137,15 +141,74 @@ export async function sendWhatsAppMessage(
   }
 
   const cfg = configs || (await getBotConfigs());
+  const provider = (cfg.gateway_provider || (cfg.fonnte_token ? 'fonnte' : 'wablas')).toLowerCase();
+
+  // 1. Fonnte Gateway Provider (Default & Recommended)
+  if (provider === 'fonnte') {
+    const token = cfg.fonnte_token || process.env.FONNTE_TOKEN || cfg.wablas_token || '';
+    if (!token) {
+      await logBotMessage(normPhone, 'outbound', 'text', message, '', 'simulated_no_token', 200, 'Token Fonnte belum disetting di Pengaturan');
+      return {
+        status: true,
+        message: 'Token Fonnte belum diisi. Pesan disimulasikan.',
+        simulated: true,
+        statusCode: 200,
+      };
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.append('target', normPhone);
+      params.append('message', message);
+      params.append('countryCode', '62');
+
+      const res = await axios.post('https://api.fonnte.com/send', params.toString(), {
+        headers: {
+          Authorization: token.trim(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 15000,
+      });
+
+      const isApiOk =
+        res.status >= 200 &&
+        res.status < 300 &&
+        res.data?.status !== false &&
+        res.data?.status !== 'false';
+
+      const statusCode = res.status || 200;
+      const errMsg = !isApiOk ? res.data?.reason || res.data?.message || 'Fonnte Gagal Kirim Pesan' : '';
+
+      await logBotMessage(
+        normPhone,
+        'outbound',
+        'text',
+        message,
+        JSON.stringify(res.data),
+        isApiOk ? 'success' : 'failed',
+        statusCode,
+        errMsg
+      );
+
+      return { status: isApiOk, response: res.data, statusCode, message: errMsg };
+    } catch (err: any) {
+      const statusCode = err.response?.status || err.code || 500;
+      const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      const errMsg = err.response?.data?.reason || err.response?.data?.message || err.message;
+      await logBotMessage(normPhone, 'outbound', 'text', message, errorBody, 'failed', statusCode, errMsg);
+      return { status: false, message: errMsg, response: err.response?.data, statusCode };
+    }
+  }
+
+  // 2. Wablas Gateway Provider
   const token = cfg.wablas_token || process.env.WABLAS_TOKEN || '';
-  const secretKey = cfg.wablas_secret || process.env.WABLAS_SECRET || '';
   const baseUrl = (cfg.wablas_url || process.env.WABLAS_DOMAIN || 'https://sby.wablas.com').replace(/\/+$/, '');
 
   if (!token) {
     await logBotMessage(normPhone, 'outbound', 'text', message, '', 'simulated_no_token', 200, 'Token Wablas belum disetting di Pengaturan');
     return {
       status: true,
-      message: 'Token not configured. Message simulated in log.',
+      message: 'Token Wablas belum diisi. Pesan disimulasikan.',
       simulated: true,
       statusCode: 200,
     };
@@ -213,6 +276,76 @@ export async function sendWhatsAppImage(
   }
 
   const cfg = configs || (await getBotConfigs());
+  const provider = (cfg.gateway_provider || (cfg.fonnte_token ? 'fonnte' : 'wablas')).toLowerCase();
+
+  // Fonnte Image Send
+  if (provider === 'fonnte') {
+    const token = cfg.fonnte_token || process.env.FONNTE_TOKEN || cfg.wablas_token || '';
+    if (!token) {
+      await logBotMessage(normPhone, 'outbound', 'image', `Image: ${imageUrl} | Caption: ${caption}`, '', 'simulated_no_token', 200, 'Token Fonnte belum disetting');
+      return {
+        status: true,
+        message: 'Token Fonnte belum diisi. Gambar disimulasikan.',
+        simulated: true,
+        statusCode: 200,
+      };
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.append('target', normPhone);
+      params.append('url', imageUrl);
+      params.append('caption', caption);
+      params.append('countryCode', '62');
+
+      const res = await axios.post('https://api.fonnte.com/send', params.toString(), {
+        headers: {
+          Authorization: token.trim(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 15000,
+      });
+
+      const isApiOk =
+        res.status >= 200 &&
+        res.status < 300 &&
+        res.data?.status !== false &&
+        res.data?.status !== 'false';
+
+      const statusCode = res.status || 200;
+      const errMsg = !isApiOk ? res.data?.reason || res.data?.message || 'Fonnte Gagal Kirim Gambar' : '';
+
+      await logBotMessage(
+        normPhone,
+        'outbound',
+        'image',
+        `Image: ${imageUrl} | Caption: ${caption}`,
+        JSON.stringify(res.data),
+        isApiOk ? 'success' : 'failed',
+        statusCode,
+        errMsg
+      );
+
+      return { status: isApiOk, response: res.data, statusCode, message: errMsg };
+    } catch (err: any) {
+      const statusCode = err.response?.status || err.code || 500;
+      const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      const errMsg = err.response?.data?.reason || err.response?.data?.message || err.message;
+      await logBotMessage(
+        normPhone,
+        'outbound',
+        'image',
+        `Image: ${imageUrl} | Caption: ${caption}`,
+        errorBody,
+        'failed',
+        statusCode,
+        errMsg
+      );
+      return { status: false, message: errMsg, response: err.response?.data, statusCode };
+    }
+  }
+
+  // Wablas Image Send
   const token = cfg.wablas_token || process.env.WABLAS_TOKEN || '';
   const baseUrl = (cfg.wablas_url || process.env.WABLAS_DOMAIN || 'https://sby.wablas.com').replace(/\/+$/, '');
 
