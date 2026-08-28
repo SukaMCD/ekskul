@@ -35,12 +35,15 @@ export async function POST(request: NextRequest) {
     const responses = await BotLog.find({
       direction: 'outbound',
       createdAt: { $gte: beforeTime },
-    }).sort({ createdAt: -1 }).limit(3);
+    }).sort({ createdAt: 1 }).limit(5);
 
     return NextResponse.json({
       status: true,
       result,
-      replies: responses.map((r) => r.messageBody || ''),
+      replies: responses.map((r) => ({
+        message: r.messageBody || '',
+        createdAt: r.createdAt,
+      })),
     });
   } catch (error: any) {
     return NextResponse.json({ status: false, message: error.message }, { status: 500 });

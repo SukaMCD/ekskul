@@ -178,11 +178,12 @@ export default function AdminSettingsPage() {
       const data = await res.json();
       if (data.replies && data.replies.length > 0) {
         data.replies.forEach((rep: any) => {
+          const replyText = typeof rep === 'string' ? rep : (rep.message || rep.text || (rep.image ? `[Gambar]: ${rep.caption || ''}` : ''));
           setSimMessages((prev) => [
             ...prev,
             {
               sender: 'bot',
-              text: rep.message || (rep.image ? `[Gambar]: ${rep.caption || ''}` : ''),
+              text: replyText,
               time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
             },
           ]);
