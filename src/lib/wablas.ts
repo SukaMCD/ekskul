@@ -56,7 +56,7 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
     store_hours: 'Senin - Minggu: 10.00 - 22.00 WIB',
     admin_phone: '6281234567890',
     gateway_provider: 'fonnte',
-    fonnte_token: '',
+    fonnte_token: process.env.FONNTE_TOKEN || 'KxciUKN8p3j5iUo3zaPT',
     wablas_url: 'https://sby.wablas.com',
     wablas_token: '',
     wablas_secret: 'fnb_secret_key_123',
