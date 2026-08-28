@@ -177,17 +177,18 @@ export default function AdminSettingsPage() {
 
       const data = await res.json();
       if (data.replies && data.replies.length > 0) {
-        data.replies.forEach((rep: any) => {
-          const replyText = typeof rep === 'string' ? rep : (rep.message || rep.text || (rep.image ? `[Gambar]: ${rep.caption || ''}` : ''));
-          setSimMessages((prev) => [
-            ...prev,
-            {
-              sender: 'bot',
-              text: replyText,
-              time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-            },
-          ]);
+        const newBotMsgs = data.replies.map((rep: any) => {
+          const replyText =
+            typeof rep === 'string'
+              ? rep
+              : (rep.message || rep.text || (rep.image ? `[Gambar]: ${rep.caption || ''}` : '') || '');
+          return {
+            sender: 'bot' as const,
+            text: replyText || '(Pesan kosong)',
+            time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+          };
         });
+        setSimMessages((prev) => [...prev, ...newBotMsgs]);
       } else {
         setSimMessages((prev) => [
           ...prev,
@@ -212,7 +213,12 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const handleResetSimulator = () => {
+  const handleResetSimulator = async () => {
+    try {
+      if (simPhone) {
+        await fetch(`/api/sessions?phone=${encodeURIComponent(simPhone)}`, { method: 'DELETE' });
+      }
+    } catch {}
     setSimMessages([
       {
         sender: 'bot',

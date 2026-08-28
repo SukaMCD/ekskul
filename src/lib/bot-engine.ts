@@ -36,15 +36,19 @@ export async function getFormattedMenuForBot(): Promise<string> {
   let text = "📋 *KATALOG MENU & HARGA*\n";
   text += "═════════════════════════\n\n";
 
-  if (categories.length === 0 || menus.length === 0) {
-    text += "_(Menu saat ini sedang diperbarui)_\n";
+  if (menus.length === 0) {
+    text += "_(Menu saat ini sedang diperbarui / belum ada item menu yang aktif)_\n";
     return text;
   }
 
+  const processedMenuIds = new Set<string>();
+
   for (const cat of categories) {
-    const catMenus = menus.filter(
-      (m: any) => m.categoryId && (m.categoryId._id || m.categoryId).toString() === (cat._id as any).toString()
-    );
+    const catIdStr = cat._id.toString();
+    const catMenus = menus.filter((m: any) => {
+      const mCatId = m.categoryId?._id ? m.categoryId._id.toString() : (m.categoryId ? m.categoryId.toString() : '');
+      return mCatId === catIdStr;
+    });
 
     if (catMenus.length === 0) continue;
 
@@ -52,6 +56,23 @@ export async function getFormattedMenuForBot(): Promise<string> {
     text += "─────────────────────────\n";
 
     for (const m of catMenus) {
+      processedMenuIds.add(m._id.toString());
+      const priceStr = 'Rp ' + Number(m.price).toLocaleString('id-ID');
+      text += `• *[${m.code}]* ${m.name} : *${priceStr}*\n`;
+      if (m.description) {
+        text += `  _${m.description}_\n`;
+      }
+    }
+    text += "\n";
+  }
+
+  // Any remaining menus not categorized
+  const otherMenus = menus.filter((m: any) => !processedMenuIds.has(m._id.toString()));
+  if (otherMenus.length > 0) {
+    if (categories.length > 0) {
+      text += `🍽️ *MENU LAINNYA*\n─────────────────────────\n`;
+    }
+    for (const m of otherMenus) {
       const priceStr = 'Rp ' + Number(m.price).toLocaleString('id-ID');
       text += `• *[${m.code}]* ${m.name} : *${priceStr}*\n`;
       if (m.description) {
