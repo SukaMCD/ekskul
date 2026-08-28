@@ -93,7 +93,14 @@ export interface InboundPayload {
   [key: string]: any;
 }
 
-async function handleCheckOrderStatus(phone: string, text: string, configs: BotConfigMap): Promise<void> {
+type SendFn = (targetPhone: string, msg: string) => Promise<void>;
+
+async function handleCheckOrderStatus(
+  phone: string,
+  text: string,
+  configs: BotConfigMap,
+  sendMsg: SendFn
+): Promise<void> {
   await connectDB();
   let order: any = null;
 
@@ -107,10 +114,9 @@ async function handleCheckOrderStatus(phone: string, text: string, configs: BotC
   }
 
   if (!order) {
-    await sendWhatsAppMessage(
+    await sendMsg(
       phone,
-      `ℹ️ Belum ada riwayat pesanan yang tercatat untuk nomor ini kak.\n\nKetik *MENU* untuk melihat katalog dan mulai memesan! 🍽️`,
-      configs
+      `ℹ️ Belum ada riwayat pesanan yang tercatat untuk nomor ini kak.\n\nKetik *MENU* untuk melihat katalog dan mulai memesan! 🍽️`
     );
     return;
   }
@@ -154,7 +160,7 @@ async function handleCheckOrderStatus(phone: string, text: string, configs: BotC
     msg += "\n💡 *Pengingat:* Mohon selesaikan pembayaran dan kirim foto bukti transfer ke chat ini ya kak.";
   }
 
-  await sendWhatsAppMessage(phone, msg, configs);
+  await sendMsg(phone, msg);
 }
 
 async function handleProcessOrderItems(
@@ -162,7 +168,8 @@ async function handleProcessOrderItems(
   text: string,
   tempData: any,
   session: any,
-  configs: BotConfigMap
+  configs: BotConfigMap,
+  sendMsg: SendFn
 ): Promise<{ status: boolean; message: string }> {
   await connectDB();
   const entries = text.split(/[,;\n]+/);
@@ -208,7 +215,7 @@ async function handleProcessOrderItems(
     msg += "• *M1 2, D1 1* (2 Ayam Geprek, 1 Kopi Aren)\n";
     msg += "• *P1 1, S1 2*\n\n";
     msg += "Ketik *MENU* untuk melihat daftar kode menu, atau ketik *BATAL* untuk keluar.";
-    await sendWhatsAppMessage(phone, msg, configs);
+    await sendMsg(phone, msg);
     return { status: true, message: 'Unrecognized items' };
   }
 
@@ -224,7 +231,7 @@ async function handleProcessOrderItems(
   for (const it of parsedItems) {
     const p = 'Rp ' + Number(it.price).toLocaleString('id-ID');
     const s = 'Rp ' + Number(it.subtotal).toLocaleString('id-ID');
-    reply += `• ${it.menu_name} (${it.quantity}x @ ${p}) = *${s}*\n`;
+    reply += `• ${it.menuName || it.menu_name} (${it.quantity}x @ ${p}) = *${s}*\n`;
   }
   reply += `Subtotal: *Rp ${subtotal.toLocaleString('id-ID')}*\n`;
 
@@ -239,7 +246,7 @@ async function handleProcessOrderItems(
   reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
   reply += "Balas dengan angka *1*, *2*, atau *3* ya kak.";
 
-  await sendWhatsAppMessage(phone, reply, configs);
+  await sendMsg(phone, reply);
   return { status: true, message: 'Items parsed and stored' };
 }
 
@@ -247,7 +254,8 @@ async function handleFinalizeOrder(
   phone: string,
   tempData: any,
   session: any,
-  configs: BotConfigMap
+  configs: BotConfigMap,
+  sendMsg: SendFn
 ): Promise<{ status: boolean; message: string }> {
   await connectDB();
   const invoiceNo = await generateInvoiceNo();
@@ -290,7 +298,7 @@ async function handleFinalizeOrder(
   invoiceMsg += "📸 *PENTING:* Setelah transfer, silakan *kirim foto bukti transfer* langsung ke chat WhatsApp ini ya kak agar pesanan langsung kami masak!\n\n";
   invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏😊";
 
-  await sendWhatsAppMessage(phone, invoiceMsg, configs);
+  await sendMsg(phone, invoiceMsg);
 
   if (adminPhone) {
     const typeLabel =
@@ -322,12 +330,17 @@ async function handleFinalizeOrder(
   return { status: true, message: 'Order created successfully' };
 }
 
-export async function processInboundWebhook(data: InboundPayload): Promise<{
+export async function processInboundWebhook(
+  data: InboundPayload,
+  isSimulation = false
+): Promise<{
   status: boolean;
   message: string;
   replies?: string[];
 }> {
   await connectDB();
+
+  const replies: string[] = [];
 
   // 1. Extract payload fields
   const rawPhone = data.phone || data.from || data.sender || '';
@@ -352,11 +365,11 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
   }
 
   if (isGroup || !phone) {
-    return { status: true, message: 'Ignored Group/Empty Phone' };
+    return { status: true, message: 'Ignored Group/Empty Phone', replies: [] };
   }
 
   const rawJson = JSON.stringify(data);
-  await logBotMessage(phone, 'inbound', type, text || (type === 'image' ? '[GAMBAR]' : ''), rawJson, 'received');
+  await logBotMessage(phone, 'inbound', type, text || (type === 'image' ? '[GAMBAR]' : ''), rawJson, isSimulation ? 'simulated_inbound' : 'received');
 
   // Load configs
   const configs = await getBotConfigs();
@@ -371,18 +384,28 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
   const isAdmin = phone === adminPhone && Boolean(adminPhone);
   const cmdLower = text.toLowerCase();
 
+  // Unified send message helper that captures replies for simulator and dispatches to WA when live
+  const sendMsg: SendFn = async (targetPhone: string, msg: string) => {
+    replies.push(msg);
+    if (isSimulation) {
+      await logBotMessage(targetPhone, 'outbound', 'text', msg, '', 'simulated');
+    } else {
+      await sendWhatsAppMessage(targetPhone, msg, configs);
+    }
+  };
+
   // 2. Admin Quick WhatsApp Commands
   if (isAdmin) {
     if (cmdLower === 'pause bot') {
       await setBotConfig('bot_active', '0');
-      await sendWhatsAppMessage(phone, "⏸️ *Bot Telah di-PAUSE secara Global.*\nBot tidak akan membalas chat pelanggan sampai kamu kirim *play bot*.", configs);
-      return { status: true, message: 'Bot Paused Globally' };
+      await sendMsg(phone, "⏸️ *Bot Telah di-PAUSE secara Global.*\nBot tidak akan membalas chat pelanggan sampai kamu kirim *play bot*.");
+      return { status: true, message: 'Bot Paused Globally', replies };
     }
 
     if (cmdLower === 'play bot') {
       await setBotConfig('bot_active', '1');
-      await sendWhatsAppMessage(phone, "▶️ *Bot Telah di-AKTIFKAN kembali.*\nBot sekarang membalas chat pelanggan secara otomatis.", configs);
-      return { status: true, message: 'Bot Activated Globally' };
+      await sendMsg(phone, "▶️ *Bot Telah di-AKTIFKAN kembali.*\nBot sekarang membalas chat pelanggan secara otomatis.");
+      return { status: true, message: 'Bot Activated Globally', replies };
     }
 
     if (cmdLower === 'status bot') {
@@ -394,21 +417,21 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       const pendingOrders = await Order.countDocuments({ orderStatus: 'pending' });
 
       const msg = `ℹ️ *STATUS BOT RESTO*\n═════════════════\n• Status Bot: *${statusStr}*\n• Pesanan Hari Ini: *${todayOrders}*\n• Pesanan Pending: *${pendingOrders}*\n• Jam Server: *${new Date().toLocaleString('id-ID')}*`;
-      await sendWhatsAppMessage(phone, msg, configs);
-      return { status: true, message: 'Status sent to admin' };
+      await sendMsg(phone, msg);
+      return { status: true, message: 'Status sent to admin', replies };
     }
 
     if (cmdLower === 'whitelist on' || cmdLower === 'whitelist 1') {
       await setBotConfig('whitelist_mode', '1');
       const nums = getWhitelistNumbers(configs.whitelist_numbers);
-      await sendWhatsAppMessage(phone, `🛡️ *Mode Whitelist DI-AKTIFKAN!*\nBot saat ini hanya akan membalas ${nums.length} nomor terdaftar dalam whitelist.`, configs);
-      return { status: true, message: 'Whitelist mode ON' };
+      await sendMsg(phone, `🛡️ *Mode Whitelist DI-AKTIFKAN!*\nBot saat ini hanya akan membalas ${nums.length} nomor terdaftar dalam whitelist.`);
+      return { status: true, message: 'Whitelist mode ON', replies };
     }
 
     if (cmdLower === 'whitelist off' || cmdLower === 'whitelist 0') {
       await setBotConfig('whitelist_mode', '0');
-      await sendWhatsAppMessage(phone, `🌐 *Mode Whitelist DI-NONAKTIFKAN!*\nBot sekarang membalas semua pesan publik dari siapapun.`, configs);
-      return { status: true, message: 'Whitelist mode OFF' };
+      await sendMsg(phone, `🌐 *Mode Whitelist DI-NONAKTIFKAN!*\nBot sekarang membalas semua pesan publik dari siapapun.`);
+      return { status: true, message: 'Whitelist mode OFF', replies };
     }
 
     const addMatch = text.match(/^whitelist\s+add\s+(\+?62\d+|08\d+|\d+)/i);
@@ -419,8 +442,8 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
         currentList.push(target);
         await setBotConfig('whitelist_numbers', currentList.join(', '));
       }
-      await sendWhatsAppMessage(phone, `✅ Nomor *${target}* berhasil ditambahkan ke whitelist!`, configs);
-      return { status: true, message: 'Whitelist number added' };
+      await sendMsg(phone, `✅ Nomor *${target}* berhasil ditambahkan ke whitelist!`);
+      return { status: true, message: 'Whitelist number added', replies };
     }
 
     const delMatch = text.match(/^whitelist\s+(del|remove|hapus)\s+(\+?62\d+|08\d+|\d+)/i);
@@ -429,8 +452,8 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       const currentList = getWhitelistNumbers(configs.whitelist_numbers);
       const filtered = currentList.filter((n) => n !== target);
       await setBotConfig('whitelist_numbers', filtered.join(', '));
-      await sendWhatsAppMessage(phone, `🗑️ Nomor *${target}* telah dihapus dari whitelist.`, configs);
-      return { status: true, message: 'Whitelist number removed' };
+      await sendMsg(phone, `🗑️ Nomor *${target}* telah dihapus dari whitelist.`);
+      return { status: true, message: 'Whitelist number removed', replies };
     }
 
     if (cmdLower === 'whitelist list' || cmdLower === 'whitelist info') {
@@ -438,8 +461,8 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       const nums = getWhitelistNumbers(configs.whitelist_numbers);
       const listStr = nums.length === 0 ? '_(Belum ada nomor)_' : nums.join('\n• ');
       const msg = `🛡️ *PENGATURAN WHITELIST BOT*\n═════════════════\n• Status Mode: *${isMode}*\n• Total Nomor: *${nums.length}*\n\n*Daftar Nomor:*\n• ${listStr}`;
-      await sendWhatsAppMessage(phone, msg, configs);
-      return { status: true, message: 'Whitelist list sent' };
+      await sendMsg(phone, msg);
+      return { status: true, message: 'Whitelist list sent', replies };
     }
 
     const playTarget = text.match(/^play\s+(\+?62\d+|08\d+|\d+)/i);
@@ -450,13 +473,13 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
         { isPaused: false, state: 'IDLE', tempData: {} },
         { upsert: true }
       );
-      await sendWhatsAppMessage(phone, `▶️ Bot diaktifkan kembali untuk nomor *${target}*.`, configs);
+      await sendMsg(phone, `▶️ Bot diaktifkan kembali untuk nomor *${target}*.`);
       await sendWhatsAppMessage(
         target,
         `Halo kak! Admin kami sudah selesai membantu ya. Bot kami aktif kembali untuk membantu kebutuhan pesanan kakak 😊\nKetik *MENU* untuk melihat katalog.`,
         configs
       );
-      return { status: true, message: `Play target ${target}` };
+      return { status: true, message: `Play target ${target}`, replies };
     }
 
     const pauseTarget = text.match(/^pause\s+(\+?62\d+|08\d+|\d+)/i);
@@ -467,30 +490,30 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
         { isPaused: true, pausedAt: new Date() },
         { upsert: true }
       );
-      await sendWhatsAppMessage(phone, `⏸️ Bot di-pause untuk nomor *${target}*.`, configs);
-      return { status: true, message: `Pause target ${target}` };
+      await sendMsg(phone, `⏸️ Bot di-pause untuk nomor *${target}*.`);
+      return { status: true, message: `Pause target ${target}`, replies };
     }
   }
 
   // 3. Admin direct reply from device
-  if (isFromMe) {
+  if (isFromMe && !isSimulation) {
     await BotSession.findOneAndUpdate(
       { phone },
       { isPaused: true, pausedAt: new Date() },
       { upsert: true }
     );
-    return { status: true, message: 'User paused because Admin replied manually' };
+    return { status: true, message: 'User paused because Admin replied manually', replies: [] };
   }
 
   // 4. Global Active Check
-  if (!botActive && !isAdmin) {
-    return { status: true, message: 'Bot Inactive Globally' };
+  if (!botActive && !isAdmin && !isSimulation) {
+    return { status: true, message: 'Bot Inactive Globally', replies: [] };
   }
 
   // 5. Whitelist Mode Check
-  if (!(await isPhoneWhitelisted(phone, configs)) && !isAdmin) {
+  if (!(await isPhoneWhitelisted(phone, configs)) && !isAdmin && !isSimulation) {
     await logBotMessage(phone, 'inbound', type, text, rawJson, 'ignored_not_whitelisted');
-    return { status: true, message: 'Phone not whitelisted' };
+    return { status: true, message: 'Phone not whitelisted', replies: [] };
   }
 
   // 6. User Session
@@ -502,11 +525,11 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
   let tempData = session.tempData || {};
 
   // Check if session is paused
-  if (session.isPaused) {
+  if (session.isPaused && !isSimulation) {
     const pausedAt = session.pausedAt ? new Date(session.pausedAt).getTime() : Date.now();
     const diffMins = (Date.now() - pausedAt) / (1000 * 60);
     if (diffMins < 60) {
-      return { status: true, message: 'User is paused' };
+      return { status: true, message: 'User is paused', replies: [] };
     } else {
       session.isPaused = false;
       session.pausedAt = undefined;
@@ -527,9 +550,9 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       await latestUnpaid.save();
 
       const reply = `📸 *Bukti Pembayaran Diterima!*\n\nTerima kasih kak! Bukti transfer untuk pesanan *#${latestUnpaid.invoiceNo}* sudah kami terima dan sedang diverifikasi oleh admin/dapur kami.\n\nPesanan akan segera disiapkan! 🍳\nKetik *STATUS* untuk cek status pesanan kapan saja.`;
-      await sendWhatsAppMessage(phone, reply, configs);
+      await sendMsg(phone, reply);
 
-      if (adminPhone) {
+      if (adminPhone && !isSimulation) {
         const adminNotif = `🔔 *BUKTI TRANSFER MASUK!*\n═════════════════════\n• No. Order: *#${latestUnpaid.invoiceNo}*\n• Pembeli: *${latestUnpaid.customerName}* (${phone})\n• Total: *Rp ${Number(latestUnpaid.grandTotal).toLocaleString('id-ID')}*\n• Status: *Menunggu Verifikasi*\n\nSilakan cek di Admin Dashboard untuk verifikasi.`;
         await sendWhatsAppMessage(adminPhone, adminNotif, configs);
       }
@@ -537,11 +560,11 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       session.state = 'IDLE';
       session.tempData = {};
       await session.save();
-      return { status: true, message: 'Payment proof processed' };
+      return { status: true, message: 'Payment proof processed', replies };
     } else {
       const reply = `Terima kasih atas kiriman gambarnya kak! 😊\nJika kakak ingin memesan makanan/minuman, silakan ketik *MENU* atau *ORDER*.`;
-      await sendWhatsAppMessage(phone, reply, configs);
-      return { status: true, message: 'General image received' };
+      await sendMsg(phone, reply);
+      return { status: true, message: 'General image received', replies };
     }
   }
 
@@ -551,9 +574,10 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
   if (cmdLower === 'batal' || cmdLower === 'cancel' || cmdLower === 'reset') {
     session.state = 'IDLE';
     session.tempData = {};
+    session.isPaused = false;
     await session.save();
-    await sendWhatsAppMessage(phone, `❌ Sesi pesanan sebelumnya telah dibatalkan.\n\nAda yang bisa kami bantu lagi? Ketik *MENU* untuk melihat katalog.`, configs);
-    return { status: true, message: 'Session reset' };
+    await sendMsg(phone, `❌ Sesi pesanan sebelumnya telah dibatalkan.\n\nAda yang bisa kami bantu lagi? Ketik *MENU* untuk melihat katalog.`);
+    return { status: true, message: 'Session reset', replies };
   }
 
   if (cmdLower === 'admin' || cmdLower === 'cs' || cmdLower === 'owner' || cmdLower === 'bantuan' || cmdLower === 'staf' || (currentState === 'IDLE' && cmdLower === '5')) {
@@ -561,13 +585,13 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
     session.pausedAt = new Date();
     await session.save();
 
-    await sendWhatsAppMessage(phone, `👨‍💼 *Menghubungkan ke Admin / Staf*\n\nPesan kakak sudah kami teruskan ke admin kami. Staf kami akan segera membalas chat kakak secara manual.\n\n_Bot dijeda sementara waktu untuk nomor ini._`, configs);
+    await sendMsg(phone, `👨‍💼 *Menghubungkan ke Admin / Staf*\n\nPesan kakak sudah kami teruskan ke admin kami. Staf kami akan segera membalas chat kakak secara manual.\n\n_Bot dijeda sementara waktu untuk nomor ini._`);
 
-    if (adminPhone) {
+    if (adminPhone && !isSimulation) {
       const dispPhone = displayPhone(phone);
       await sendWhatsAppMessage(adminPhone, `🔔 *PELANGGAN BUTUH BANTUAN ADMIN!*\nNomor: *${dispPhone}* (${phone})\nPesan terakhir: "${text}"\n\n_Bot otomatis di-pause untuk nomor ini agar admin bisa chat langsung._`, configs);
     }
-    return { status: true, message: 'Admin handoff requested' };
+    return { status: true, message: 'Admin handoff requested', replies };
   }
 
   // 9. State Machine & Flow Ordering
@@ -577,8 +601,8 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       session.tempData = {};
       await session.save();
       const catalog = await getFormattedMenuForBot();
-      await sendWhatsAppMessage(phone, catalog, configs);
-      return { status: true, message: 'Menu catalog sent' };
+      await sendMsg(phone, catalog);
+      return { status: true, message: 'Menu catalog sent', replies };
     }
 
     if (cmdLower === '4' || cmdLower === 'info' || cmdLower === 'lokasi' || cmdLower === 'alamat' || cmdLower === 'jam' || cmdLower === 'rekening' || cmdLower === 'qris') {
@@ -592,13 +616,13 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       infoMsg += `${bankInfo}\n`;
       infoMsg += `═══════════════════════\n`;
       infoMsg += `Ketik *MENU* untuk melihat menu, atau *ORDER* untuk pesan sekarang!`;
-      await sendWhatsAppMessage(phone, infoMsg, configs);
-      return { status: true, message: 'Info sent' };
+      await sendMsg(phone, infoMsg);
+      return { status: true, message: 'Info sent', replies };
     }
 
     if (cmdLower === '3' || cmdLower.startsWith('status') || cmdLower.startsWith('cek')) {
-      await handleCheckOrderStatus(phone, text, configs);
-      return { status: true, message: 'Status checked' };
+      await handleCheckOrderStatus(phone, text, configs, sendMsg);
+      return { status: true, message: 'Status checked', replies };
     }
   }
 
@@ -606,7 +630,8 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
   const orderMatch = text.match(/^(order|pesan)\s+(.+)$/i);
   if (orderMatch) {
     const itemsText = orderMatch[2].trim();
-    return await handleProcessOrderItems(phone, itemsText, tempData, session, configs);
+    const res = await handleProcessOrderItems(phone, itemsText, tempData, session, configs, sendMsg);
+    return { ...res, replies };
   }
 
   // Flow State Machine
@@ -625,18 +650,19 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
         guide += "• *P1 1, S1 1, D2 2*\n\n";
         guide += "_Belum hafal kodenya? Ketik *MENU* untuk lihat daftar menu._\n";
         guide += "_Ketik *BATAL* kapan saja jika ingin membatalkan._";
-        await sendWhatsAppMessage(phone, guide, configs);
-        return { status: true, message: 'Ordering guide sent' };
+        await sendMsg(phone, guide);
+        return { status: true, message: 'Ordering guide sent', replies };
       }
 
       // Default Welcome Message
       const welcomeTpl = configs.welcome_message || `Halo kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nSilakan ketik nomor pilihan berikut:\n1️⃣ *MENU* - Lihat Katalog Menu & Harga\n2️⃣ *ORDER* - Buat Pesanan Baru\n3️⃣ *STATUS* - Cek Status Pesanan\n4️⃣ *INFO* - Lokasi, Jam Buka & Rekening\n5️⃣ *ADMIN* - Bicara dengan Admin / Staf`;
       const welcomeMsg = welcomeTpl.replace(/{store_name}/g, storeName);
-      await sendWhatsAppMessage(phone, welcomeMsg, configs);
-      return { status: true, message: 'Welcome sent' };
+      await sendMsg(phone, welcomeMsg);
+      return { status: true, message: 'Welcome sent', replies };
 
     case 'ORDERING_ITEMS':
-      return await handleProcessOrderItems(phone, text, tempData, session, configs);
+      const itemsRes = await handleProcessOrderItems(phone, text, tempData, session, configs, sendMsg);
+      return { ...itemsRes, replies };
 
     case 'ORDERING_TYPE':
       const typeMap: Record<string, 'dine_in' | 'takeaway' | 'delivery'> = {
@@ -656,12 +682,11 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
 
       const chosenType = typeMap[cmdLower];
       if (!chosenType) {
-        await sendWhatsAppMessage(
+        await sendMsg(
           phone,
-          `⚠️ Pilihan tidak valid. Silakan balas dengan angka:\n*1* untuk Makan di Tempat (Dine-In)\n*2* untuk Bungkus (Takeaway)\n*3* untuk Pesan Antar (Delivery)\n\n_(Atau ketik *BATAL* untuk membatalkan)_`,
-          configs
+          `⚠️ Pilihan tidak valid. Silakan balas dengan angka:\n*1* untuk Makan di Tempat (Dine-In)\n*2* untuk Bungkus (Takeaway)\n*3* untuk Pesan Antar (Delivery)\n\n_(Atau ketik *BATAL* untuk membatalkan)_`
         );
-        return { status: true, message: 'Invalid order type selection' };
+        return { status: true, message: 'Invalid order type selection', replies };
       }
 
       tempData.order_type = chosenType;
@@ -671,19 +696,19 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       await session.save();
 
       if (chosenType === 'dine_in') {
-        await sendWhatsAppMessage(phone, `🍽️ *Makan di Tempat (Dine-In)*\n\nBoleh minta *Nama Pemesan & Nomor Meja* kakak?\nContoh: *Budi Santoso - Meja 05*`, configs);
+        await sendMsg(phone, `🍽️ *Makan di Tempat (Dine-In)*\n\nBoleh minta *Nama Pemesan & Nomor Meja* kakak?\nContoh: *Budi Santoso - Meja 05*`);
       } else if (chosenType === 'takeaway') {
-        await sendWhatsAppMessage(phone, `🛍️ *Bungkus Bawa Pulang (Takeaway)*\n\nBoleh minta *Nama Lengkap Pemesan* kakak?\nContoh: *Rina Rahayu*`, configs);
+        await sendMsg(phone, `🛍️ *Bungkus Bawa Pulang (Takeaway)*\n\nBoleh minta *Nama Lengkap Pemesan* kakak?\nContoh: *Rina Rahayu*`);
       } else {
-        await sendWhatsAppMessage(phone, `🛵 *Pesan Antar (Delivery)*\n\nBoleh minta *Nama & Alamat Lengkap Pengiriman* kakak beserta patokannya?\nContoh: *Andi - Jl. Mawar No. 12, RT 02/03 (Pagar Hitam), Surabaya*`, configs);
+        await sendMsg(phone, `🛵 *Pesan Antar (Delivery)*\n\nBoleh minta *Nama & Alamat Lengkap Pengiriman* kakak beserta patokannya?\nContoh: *Andi - Jl. Mawar No. 12, RT 02/03 (Pagar Hitam), Surabaya*`);
       }
-      return { status: true, message: 'Order type chosen' };
+      return { status: true, message: 'Order type chosen', replies };
 
     case 'ORDERING_NAME_ADDRESS':
       const nameInput = text.trim();
       if (nameInput.length < 2) {
-        await sendWhatsAppMessage(phone, `⚠️ Mohon masukkan nama / alamat yang jelas ya kak.`, configs);
-        return { status: true, message: 'Invalid address input' };
+        await sendMsg(phone, `⚠️ Mohon masukkan nama / alamat yang jelas ya kak.`);
+        return { status: true, message: 'Invalid address input', replies };
       }
 
       const oType = tempData.order_type || 'delivery';
@@ -709,12 +734,11 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       session.tempData = tempData;
       await session.save();
 
-      await sendWhatsAppMessage(
+      await sendMsg(
         phone,
-        `📝 Ada *catatan khusus* untuk pesanan ini?\n(Contoh: *Sambal dipisah, es sedikit, jangan pakai daun bawang*).\n\nKetik catatanmu, atau balas *-* (tanda strip) jika tidak ada.`,
-        configs
+        `📝 Ada *catatan khusus* untuk pesanan ini?\n(Contoh: *Sambal dipisah, es sedikit, jangan pakai daun bawang*).\n\nKetik catatanmu, atau balas *-* (tanda strip) jika tidak ada.`
       );
-      return { status: true, message: 'Name/address received' };
+      return { status: true, message: 'Name/address received', replies };
 
     case 'ORDERING_NOTES':
       let notes = text.trim();
@@ -751,7 +775,7 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       for (const it of items) {
         const itemPrice = 'Rp ' + Number(it.price).toLocaleString('id-ID');
         const itemSub = 'Rp ' + Number(it.subtotal).toLocaleString('id-ID');
-        summary += `• ${it.menu_name} (${it.quantity}x @ ${itemPrice}) = *${itemSub}*\n`;
+        summary += `• ${it.menuName || it.menu_name} (${it.quantity}x @ ${itemPrice}) = *${itemSub}*\n`;
       }
       summary += "─────────────────────────\n";
       summary += `Subtotal: *Rp ${subtotal.toLocaleString('id-ID')}*\n`;
@@ -764,28 +788,29 @@ export async function processInboundWebhook(data: InboundPayload): Promise<{
       summary += "Ketik *YA* untuk memproses pesanan.\n";
       summary += "Ketik *BATAL* untuk membatalkan.";
 
-      await sendWhatsAppMessage(phone, summary, configs);
-      return { status: true, message: 'Summary sent' };
+      await sendMsg(phone, summary);
+      return { status: true, message: 'Summary sent', replies };
 
     case 'ORDERING_CONFIRM':
       if (['ya', 'oke', 'ok', 'benar', '1', 'siap', 'y', 'yes', 'deal'].includes(cmdLower)) {
-        return await handleFinalizeOrder(phone, tempData, session, configs);
+        const finRes = await handleFinalizeOrder(phone, tempData, session, configs, sendMsg);
+        return { ...finRes, replies };
       } else if (['batal', 'tidak', 'gak', 'ga', '2', 'cancel', 'no'].includes(cmdLower)) {
         session.state = 'IDLE';
         session.tempData = {};
         await session.save();
-        await sendWhatsAppMessage(phone, `❌ Pesanan berhasil dibatalkan. Terima kasih!\n\nKetik *MENU* jika ingin melihat daftar menu kami kembali.`, configs);
-        return { status: true, message: 'Order cancelled by user' };
+        await sendMsg(phone, `❌ Pesanan berhasil dibatalkan. Terima kasih!\n\nKetik *MENU* jika ingin melihat daftar menu kami kembali.`);
+        return { status: true, message: 'Order cancelled by user', replies };
       } else {
-        await sendWhatsAppMessage(phone, `⚠️ Mohon balas *YA* jika pesanan sudah benar, atau *BATAL* untuk membatalkan.`, configs);
-        return { status: true, message: 'Waiting valid confirm' };
+        await sendMsg(phone, `⚠️ Mohon balas *YA* jika pesanan sudah benar, atau *BATAL* untuk membatalkan.`);
+        return { status: true, message: 'Waiting valid confirm', replies };
       }
 
     default:
       session.state = 'IDLE';
       session.tempData = {};
       await session.save();
-      await sendWhatsAppMessage(phone, `Halo kak! Ketik *MENU* untuk melihat katalog menu makanan & minuman kami 😊`, configs);
-      return { status: true, message: 'Fallback to default IDLE' };
+      await sendMsg(phone, `Halo kak! Ketik *MENU* untuk melihat katalog menu makanan & minuman kami 😊`);
+      return { status: true, message: 'Fallback to default IDLE', replies };
   }
 }

@@ -27,19 +27,11 @@ export async function POST(request: NextRequest) {
       isGroup: false,
     };
 
-    const beforeTime = new Date(Date.now() - 2000);
-    const result = await processInboundWebhook(payload);
+    const result = await processInboundWebhook(payload, true);
 
-    // Fetch the recent outbound bot responses from BotLog
-    await connectDB();
-    const responses = await BotLog.find({
-      direction: 'outbound',
-      createdAt: { $gte: beforeTime },
-    }).sort({ createdAt: 1 }).limit(5);
-
-    let replies = responses.map((r) => ({
-      message: r.messageBody || '',
-      createdAt: r.createdAt,
+    let replies = (result.replies || []).map((msg) => ({
+      message: msg,
+      createdAt: new Date(),
     }));
 
     if (replies.length === 0) {
