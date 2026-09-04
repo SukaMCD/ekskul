@@ -1,4 +1,4 @@
-import axios from 'axios';
+// Native fetch used instead of axios for better Vercel serverless compatibility
 import connectDB from './db';
 import BotConfig from '@/models/BotConfig';
 import BotLog from '@/models/BotLog';
@@ -162,41 +162,32 @@ export async function sendWhatsAppMessage(
       params.append('message', message);
       params.append('countryCode', '62');
 
-      const res = await axios.post('https://api.fonnte.com/send', params.toString(), {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch('https://api.fonnte.com/send', {
+        method: 'POST',
         headers: {
           Authorization: token.trim(),
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        timeout: 15000,
+        body: params.toString(),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
-      const isApiOk =
-        res.status >= 200 &&
-        res.status < 300 &&
-        res.data?.status !== false &&
-        res.data?.status !== 'false';
+      let resData: any = {};
+      try { resData = await res.json(); } catch { resData = { raw: await res.text().catch(() => '') }; }
 
+      const isApiOk = res.ok && resData?.status !== false && resData?.status !== 'false';
       const statusCode = res.status || 200;
-      const errMsg = !isApiOk ? res.data?.reason || res.data?.message || 'Fonnte Gagal Kirim Pesan' : '';
+      const errMsg = !isApiOk ? resData?.reason || resData?.message || 'Fonnte Gagal Kirim Pesan' : '';
 
-      await logBotMessage(
-        normPhone,
-        'outbound',
-        'text',
-        message,
-        JSON.stringify(res.data),
-        isApiOk ? 'success' : 'failed',
-        statusCode,
-        errMsg
-      );
-
-      return { status: isApiOk, response: res.data, statusCode, message: errMsg };
+      await logBotMessage(normPhone, 'outbound', 'text', message, JSON.stringify(resData), isApiOk ? 'success' : 'failed', statusCode, errMsg);
+      return { status: isApiOk, response: resData, statusCode, message: errMsg };
     } catch (err: any) {
-      const statusCode = err.response?.status || err.code || 500;
-      const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-      const errMsg = err.response?.data?.reason || err.response?.data?.message || err.message;
-      await logBotMessage(normPhone, 'outbound', 'text', message, errorBody, 'failed', statusCode, errMsg);
-      return { status: false, message: errMsg, response: err.response?.data, statusCode };
+      const errMsg = err.name === 'AbortError' ? 'Request timeout (15s)' : err.message;
+      await logBotMessage(normPhone, 'outbound', 'text', message, errMsg, 'failed', 500, errMsg);
+      return { status: false, message: errMsg, statusCode: 500 };
     }
   }
 
@@ -222,45 +213,34 @@ export async function sendWhatsAppMessage(
     params.append('phone', normPhone);
     params.append('message', message);
 
-    const res = await axios.post(endpoint, params.toString(), {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch(endpoint, {
+      method: 'POST',
       headers: {
         Authorization: authHeader,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      timeout: 15000,
+      body: params.toString(),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
-    const isApiOk =
-      res.status >= 200 &&
-      res.status < 300 &&
-      res.data?.status !== false &&
-      res.data?.status !== 'false' &&
-      res.data?.status !== 'error';
+    let resData: any = {};
+    try { resData = await res.json(); } catch { resData = { raw: await res.text().catch(() => '') }; }
 
+    const isApiOk = res.ok && resData?.status !== false && resData?.status !== 'false' && resData?.status !== 'error';
     const statusCode = res.status || 200;
-    const errMsg =
-      !isApiOk
-        ? res.data?.message || (typeof res.data === 'string' ? res.data : 'Wablas API Gagal Mengirim Pesan')
-        : '';
+    const errMsg = !isApiOk
+      ? resData?.message || (typeof resData === 'string' ? resData : 'Wablas API Gagal Mengirim Pesan')
+      : '';
 
-    await logBotMessage(
-      normPhone,
-      'outbound',
-      'text',
-      message,
-      JSON.stringify(res.data),
-      isApiOk ? 'success' : 'failed',
-      statusCode,
-      errMsg
-    );
-
-    return { status: isApiOk, response: res.data, statusCode, message: errMsg };
+    await logBotMessage(normPhone, 'outbound', 'text', message, JSON.stringify(resData), isApiOk ? 'success' : 'failed', statusCode, errMsg);
+    return { status: isApiOk, response: resData, statusCode, message: errMsg };
   } catch (err: any) {
-    const statusCode = err.response?.status || err.code || 500;
-    const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-    const errMsg = err.response?.data?.message || err.message;
-    await logBotMessage(normPhone, 'outbound', 'text', message, errorBody, 'failed', statusCode, errMsg);
-    return { status: false, message: errMsg, response: err.response?.data, statusCode };
+    const errMsg = err.name === 'AbortError' ? 'Request timeout (15s) - Wablas tidak merespons' : err.message;
+    await logBotMessage(normPhone, 'outbound', 'text', message, errMsg, 'failed', 500, errMsg);
+    return { status: false, message: errMsg, statusCode: 500 };
   }
 }
 
@@ -298,50 +278,29 @@ export async function sendWhatsAppImage(
       params.append('caption', caption);
       params.append('countryCode', '62');
 
-      const res = await axios.post('https://api.fonnte.com/send', params.toString(), {
-        headers: {
-          Authorization: token.trim(),
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        timeout: 15000,
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch('https://api.fonnte.com/send', {
+        method: 'POST',
+        headers: { Authorization: token.trim(), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
-      const isApiOk =
-        res.status >= 200 &&
-        res.status < 300 &&
-        res.data?.status !== false &&
-        res.data?.status !== 'false';
+      let resData: any = {};
+      try { resData = await res.json(); } catch { resData = {}; }
 
+      const isApiOk = res.ok && resData?.status !== false && resData?.status !== 'false';
       const statusCode = res.status || 200;
-      const errMsg = !isApiOk ? res.data?.reason || res.data?.message || 'Fonnte Gagal Kirim Gambar' : '';
+      const errMsg = !isApiOk ? resData?.reason || resData?.message || 'Fonnte Gagal Kirim Gambar' : '';
 
-      await logBotMessage(
-        normPhone,
-        'outbound',
-        'image',
-        `Image: ${imageUrl} | Caption: ${caption}`,
-        JSON.stringify(res.data),
-        isApiOk ? 'success' : 'failed',
-        statusCode,
-        errMsg
-      );
-
-      return { status: isApiOk, response: res.data, statusCode, message: errMsg };
+      await logBotMessage(normPhone, 'outbound', 'image', `Image: ${imageUrl} | Caption: ${caption}`, JSON.stringify(resData), isApiOk ? 'success' : 'failed', statusCode, errMsg);
+      return { status: isApiOk, response: resData, statusCode, message: errMsg };
     } catch (err: any) {
-      const statusCode = err.response?.status || err.code || 500;
-      const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-      const errMsg = err.response?.data?.reason || err.response?.data?.message || err.message;
-      await logBotMessage(
-        normPhone,
-        'outbound',
-        'image',
-        `Image: ${imageUrl} | Caption: ${caption}`,
-        errorBody,
-        'failed',
-        statusCode,
-        errMsg
-      );
-      return { status: false, message: errMsg, response: err.response?.data, statusCode };
+      const errMsg = err.name === 'AbortError' ? 'Request timeout (15s)' : err.message;
+      await logBotMessage(normPhone, 'outbound', 'image', `Image: ${imageUrl} | Caption: ${caption}`, errMsg, 'failed', 500, errMsg);
+      return { status: false, message: errMsg, statusCode: 500 };
     }
   }
 
@@ -368,49 +327,28 @@ export async function sendWhatsAppImage(
     params.append('image', imageUrl);
     params.append('caption', caption);
 
-    const res = await axios.post(endpoint, params.toString(), {
-      headers: {
-        Authorization: authHeader,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      timeout: 15000,
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
-    const isApiOk =
-      res.status >= 200 &&
-      res.status < 300 &&
-      res.data?.status !== false &&
-      res.data?.status !== 'false';
+    let resData: any = {};
+    try { resData = await res.json(); } catch { resData = {}; }
 
+    const isApiOk = res.ok && resData?.status !== false && resData?.status !== 'false';
     const statusCode = res.status || 200;
-    const errMsg = !isApiOk ? res.data?.message || 'Wablas Gagal Kirim Gambar' : '';
+    const errMsg = !isApiOk ? resData?.message || 'Wablas Gagal Kirim Gambar' : '';
 
-    await logBotMessage(
-      normPhone,
-      'outbound',
-      'image',
-      `Image: ${imageUrl} | Caption: ${caption}`,
-      JSON.stringify(res.data),
-      isApiOk ? 'success' : 'failed',
-      statusCode,
-      errMsg
-    );
-
-    return { status: isApiOk, response: res.data, statusCode, message: errMsg };
+    await logBotMessage(normPhone, 'outbound', 'image', `Image: ${imageUrl} | Caption: ${caption}`, JSON.stringify(resData), isApiOk ? 'success' : 'failed', statusCode, errMsg);
+    return { status: isApiOk, response: resData, statusCode, message: errMsg };
   } catch (err: any) {
-    const statusCode = err.response?.status || err.code || 500;
-    const errorBody = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-    const errMsg = err.response?.data?.message || err.message;
-    await logBotMessage(
-      normPhone,
-      'outbound',
-      'image',
-      `Image: ${imageUrl} | Caption: ${caption}`,
-      errorBody,
-      'failed',
-      statusCode,
-      errMsg
-    );
-    return { status: false, message: errMsg, response: err.response?.data, statusCode };
+    const errMsg = err.name === 'AbortError' ? 'Request timeout (15s) - Wablas tidak merespons' : err.message;
+    await logBotMessage(normPhone, 'outbound', 'image', `Image: ${imageUrl} | Caption: ${caption}`, errMsg, 'failed', 500, errMsg);
+    return { status: false, message: errMsg, statusCode: 500 };
   }
 }
