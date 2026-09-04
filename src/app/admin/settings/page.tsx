@@ -349,7 +349,7 @@ export default function AdminSettingsPage() {
                         : 'bg-white text-slate-900 rounded-tl-none border border-slate-200'
                     }`}
                   >
-                    <p className="whitespace-pre-wrap leading-relaxed font-sans">{msg.text}</p>
+                    <p className="whitespace-pre-wrap leading-relaxed font-sans break-words min-h-[1em]">{String(msg.text ?? '')}</p>
                     <span className="text-[9px] text-slate-400 block text-right font-mono">{msg.time}</span>
                   </div>
                 </div>
