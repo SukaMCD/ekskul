@@ -176,27 +176,46 @@ export default function AdminSettingsPage() {
       });
 
       const data = await res.json();
-      console.log('[Simulator] API Response:', JSON.stringify(data, null, 2));
-      if (data.replies && data.replies.length > 0) {
-        const newBotMsgs = data.replies.map((rep: any) => {
-          const replyText =
-            typeof rep === 'string'
-              ? rep
-              : (rep.message || rep.text || (rep.image ? `[Gambar]: ${rep.caption || ''}` : '') || '');
-          return {
-            sender: 'bot' as const,
-            text: replyText || '(Pesan kosong)',
-            time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-          };
-        });
+      console.log('[Simulator] RAW API Response:', data);
+
+      // Try to extract text from multiple possible formats
+      const extractedMsgs: string[] = [];
+
+      // Primary: data.replies array (objects with .message)
+      if (Array.isArray(data.replies) && data.replies.length > 0) {
+        for (const rep of data.replies) {
+          const txt = typeof rep === 'string' ? rep : String(rep?.message ?? rep?.text ?? '');
+          if (txt && txt.trim()) extractedMsgs.push(txt.trim());
+        }
+      }
+
+      // Fallback 1: data._rawReplies (flat string array from backend)
+      if (extractedMsgs.length === 0 && Array.isArray(data._rawReplies) && data._rawReplies.length > 0) {
+        for (const r of data._rawReplies) {
+          if (r && String(r).trim()) extractedMsgs.push(String(r).trim());
+        }
+      }
+
+      // Fallback 2: data._firstReply (single string)
+      if (extractedMsgs.length === 0 && data._firstReply) {
+        extractedMsgs.push(String(data._firstReply));
+      }
+
+      if (extractedMsgs.length > 0) {
+        const newBotMsgs = extractedMsgs.map((txt) => ({
+          sender: 'bot' as const,
+          text: txt,
+          time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        }));
         setSimMessages((prev) => [...prev, ...newBotMsgs]);
       } else {
-        const debugInfo = data.result?.message || data.message || 'tidak ada info';
+        // Show diagnostic info — never show empty bubble
+        const debugInfo = data.result?.message || data.message || JSON.stringify(data).slice(0, 200);
         setSimMessages((prev) => [
           ...prev,
           {
-            sender: 'bot',
-            text: `⚠️ Bot tidak membalas.\nStatus: ${debugInfo}\n\n_Kemungkinan penyebab: DB belum terkoneksi, atau env variable belum di-set di Vercel._`,
+            sender: 'bot' as const,
+            text: `⚠️ Bot tidak menghasilkan balasan.\nStatus: ${debugInfo}\n\n_replyCount: ${data._replyCount ?? 'N/A'}_`,
             time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           },
         ]);

@@ -71,7 +71,16 @@ export async function POST(request: NextRequest) {
       replies = [{ message: fallback, createdAt: new Date() }];
     }
 
-    return NextResponse.json({ status: true, result, replies });
+    const debugPayload = {
+      status: true,
+      result,
+      replies,
+      _rawReplies: rawReplies,         // flat string array
+      _firstReply: rawReplies[0] ?? '', // first reply as plain string
+      _replyCount: rawReplies.length,
+    };
+    console.error('[SIMULATE DEBUG] replies count:', rawReplies.length, '| first 100 chars:', rawReplies[0]?.slice(0, 100));
+    return NextResponse.json(debugPayload);
   } catch (error: any) {
     const errMsg = `❌ *[Error Server]* Terjadi kegagalan sistem:\n\n${error.message}`;
     return NextResponse.json({
