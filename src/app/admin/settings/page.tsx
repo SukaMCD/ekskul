@@ -526,18 +526,18 @@ export default function AdminSettingsPage() {
                   type="button"
                   onClick={() => handleConfigChange('gateway_provider', 'fonnte')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    (configs.gateway_provider || 'fonnte') === 'fonnte'
+                    configs.gateway_provider === 'fonnte'
                       ? 'bg-emerald-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  ⭐ Fonnte (Rekomendasi)
+                  Fonnte
                 </button>
                 <button
                   type="button"
                   onClick={() => handleConfigChange('gateway_provider', 'wablas')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    configs.gateway_provider === 'wablas'
+                    (configs.gateway_provider || 'wablas') === 'wablas'
                       ? 'bg-blue-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
@@ -547,8 +547,8 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
-            {/* Provider 1: FONNTE (Default) */}
-            {(configs.gateway_provider || 'fonnte') === 'fonnte' ? (
+            {/* Provider 1: FONNTE */}
+            {(configs.gateway_provider || 'wablas') === 'fonnte' ? (
               <div className="space-y-4">
                 <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
                   <h4 className="font-bold text-emerald-900 flex items-center gap-1.5">

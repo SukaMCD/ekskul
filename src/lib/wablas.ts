@@ -55,7 +55,7 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
     store_gmaps: 'https://maps.google.com/?q=-7.2575,112.7521',
     store_hours: 'Senin - Minggu: 10.00 - 22.00 WIB',
     admin_phone: '6281234567890',
-    gateway_provider: 'fonnte',
+    gateway_provider: 'wablas',
     fonnte_token: process.env.FONNTE_TOKEN || 'KxciUKN8p3j5iUo3zaPT',
     wablas_url: 'https://sby.wablas.com',
     wablas_token: '',
@@ -141,7 +141,7 @@ export async function sendWhatsAppMessage(
   }
 
   const cfg = configs || (await getBotConfigs());
-  const provider = (cfg.gateway_provider || (cfg.fonnte_token ? 'fonnte' : 'wablas')).toLowerCase();
+  const provider = (cfg.gateway_provider || 'wablas').toLowerCase();
 
   // 1. Fonnte Gateway Provider (Default & Recommended)
   if (provider === 'fonnte') {
@@ -276,7 +276,7 @@ export async function sendWhatsAppImage(
   }
 
   const cfg = configs || (await getBotConfigs());
-  const provider = (cfg.gateway_provider || (cfg.fonnte_token ? 'fonnte' : 'wablas')).toLowerCase();
+  const provider = (cfg.gateway_provider || 'wablas').toLowerCase();
 
   // Fonnte Image Send
   if (provider === 'fonnte') {
