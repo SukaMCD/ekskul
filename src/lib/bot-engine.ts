@@ -605,8 +605,15 @@ export async function processInboundWebhook(
     session.state = 'IDLE';
     session.tempData = {};
     await session.save();
-    const catalog = await getFormattedMenuForBot();
-    await sendMsg(phone, catalog);
+    try {
+      const catalog = await getFormattedMenuForBot();
+      const msgToSend = catalog && catalog.trim().length > 10
+        ? catalog
+        : `📋 *KATALOG MENU*\n\n_(Menu saat ini belum tersedia atau sedang diperbarui)_\n\nSilakan hubungi admin untuk informasi menu terbaru, atau ketik *INFO* untuk detail toko.`;
+      await sendMsg(phone, msgToSend);
+    } catch (err: any) {
+      await sendMsg(phone, `⚠️ Gagal memuat katalog menu. Silakan coba lagi atau ketik *INFO*.`);
+    }
     return { status: true, message: 'Menu catalog sent', replies };
   }
 

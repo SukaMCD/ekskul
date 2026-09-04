@@ -176,6 +176,7 @@ export default function AdminSettingsPage() {
       });
 
       const data = await res.json();
+      console.log('[Simulator] API Response:', JSON.stringify(data, null, 2));
       if (data.replies && data.replies.length > 0) {
         const newBotMsgs = data.replies.map((rep: any) => {
           const replyText =
@@ -190,11 +191,12 @@ export default function AdminSettingsPage() {
         });
         setSimMessages((prev) => [...prev, ...newBotMsgs]);
       } else {
+        const debugInfo = data.result?.message || data.message || 'tidak ada info';
         setSimMessages((prev) => [
           ...prev,
           {
             sender: 'bot',
-            text: `(Bot tidak membalas / Status bot: ${data.session?.state || 'IDLE'})`,
+            text: `⚠️ Bot tidak membalas.\nStatus: ${debugInfo}\n\n_Kemungkinan penyebab: DB belum terkoneksi, atau env variable belum di-set di Vercel._`,
             time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           },
         ]);
