@@ -17,6 +17,10 @@ import {
 import {
   sendTelegramMessage,
   sendTelegramPhoto,
+  TELEGRAM_MAIN_KEYBOARD,
+  TELEGRAM_ORDER_TYPE_KEYBOARD,
+  TELEGRAM_CONFIRM_KEYBOARD,
+  TELEGRAM_CANCEL_KEYBOARD,
 } from './telegram';
 
 export async function generateInvoiceNo(): Promise<string> {
@@ -122,7 +126,11 @@ export interface InboundPayload {
   [key: string]: any;
 }
 
-type SendFn = (targetPhone: string, msg: string) => Promise<void>;
+type SendFn = (
+  targetPhone: string,
+  msg: string,
+  options?: { keyboard?: 'main' | 'order_type' | 'confirm' | 'cancel' | 'none' }
+) => Promise<void>;
 
 async function handleCheckOrderStatus(
   phone: string,
@@ -275,7 +283,7 @@ async function handleProcessOrderItems(
   reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
   reply += "Balas dengan angka *1*, *2*, atau *3* ya kak.";
 
-  await sendMsg(phone, reply);
+  await sendMsg(phone, reply, { keyboard: 'order_type' });
   return { status: true, message: 'Items parsed and stored' };
 }
 
@@ -435,15 +443,51 @@ export async function processInboundWebhook(
   if (cleanText.startsWith('/')) {
     cleanText = cleanText.replace(/^\/([a-zA-Z0-9_]+)(?:@\w+)?(?:\s*|$)/i, '$1 ').trim();
   }
-  const cmdLower = cleanText.toLowerCase();
+
+  // Strip common emojis to recognize button clicks (e.g. "🍽️ Lihat Menu", "📝 Pesan (ORDER)", "1️⃣ Makan di Tempat")
+  let textWithoutEmoji = cleanText.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim();
+  let cmdLower = textWithoutEmoji.toLowerCase();
+
+  // Normalize button aliases:
+  if (cmdLower.includes('lihat menu') || cmdLower === 'menu' || cmdLower === 'katalog') {
+    cmdLower = 'menu';
+  } else if (cmdLower === 'pesan (order)' || cmdLower === 'order' || cmdLower === 'pesan') {
+    cmdLower = 'order';
+  } else if (cmdLower.includes('cek status') || cmdLower === 'status') {
+    cmdLower = 'status';
+  } else if (cmdLower.includes('info resto') || cmdLower === 'info') {
+    cmdLower = 'info';
+  } else if (cmdLower.includes('bantuan admin') || cmdLower.includes('admin / cs') || cmdLower === 'admin' || cmdLower === 'cs') {
+    cmdLower = 'admin';
+  } else if (cmdLower.includes('batal') || cmdLower === 'cancel') {
+    cmdLower = 'batal';
+  } else if (cmdLower.includes('makan di tempat') || cmdLower.includes('dine-in') || cmdLower.includes('dine in')) {
+    cmdLower = '1';
+  } else if (cmdLower.includes('bungkus') || cmdLower.includes('takeaway')) {
+    cmdLower = '2';
+  } else if (cmdLower.includes('pesan antar') || cmdLower.includes('delivery')) {
+    cmdLower = '3';
+  } else if (cmdLower.includes('buat pesanan') || cmdLower.startsWith('ya')) {
+    cmdLower = 'ya';
+  }
 
   // Unified send message helper that captures replies for simulator and dispatches to Telegram / WA
-  const sendMsg: SendFn = async (targetPhone: string, msg: string) => {
+  const sendMsg: SendFn = async (
+    targetPhone: string,
+    msg: string,
+    opts?: { keyboard?: 'main' | 'order_type' | 'confirm' | 'cancel' | 'none' }
+  ) => {
     replies.push(msg);
     if (isSimulation) {
       await logBotMessage(targetPhone, 'outbound', isTelegram ? 'telegram_text' : 'text', msg, '', 'simulated');
     } else if (isTelegram || configs.gateway_provider === 'telegram') {
-      await sendTelegramMessage(targetPhone, msg, configs);
+      let replyMarkup: any = TELEGRAM_MAIN_KEYBOARD;
+      if (opts?.keyboard === 'order_type') replyMarkup = TELEGRAM_ORDER_TYPE_KEYBOARD;
+      else if (opts?.keyboard === 'confirm') replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
+      else if (opts?.keyboard === 'cancel') replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
+      else if (opts?.keyboard === 'none') replyMarkup = undefined;
+
+      await sendTelegramMessage(targetPhone, msg, configs, { reply_markup: replyMarkup });
     } else {
       await sendWhatsAppMessage(targetPhone, msg, configs);
     }
@@ -879,7 +923,7 @@ export async function processInboundWebhook(
       summary += "Ketik *YA* untuk memproses pesanan.\n";
       summary += "Ketik *BATAL* untuk membatalkan.";
 
-      await sendMsg(phone, summary);
+      await sendMsg(phone, summary, { keyboard: 'confirm' });
       return { status: true, message: 'Summary sent', replies };
 
     case 'ORDERING_CONFIRM':

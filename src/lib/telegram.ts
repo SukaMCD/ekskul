@@ -16,13 +16,89 @@ export async function getTelegramToken(configs?: BotConfigMap): Promise<string> 
   return (cfg.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || '').trim();
 }
 
+export interface TelegramSendOptions {
+  reply_markup?: any;
+  parse_mode?: 'Markdown' | 'HTML';
+}
+
+export const TELEGRAM_MAIN_KEYBOARD = {
+  keyboard: [
+    [{ text: '🍽️ Lihat Menu' }, { text: '📝 Pesan (ORDER)' }],
+    [{ text: '📋 Cek Status' }, { text: 'ℹ️ Info Resto' }],
+    [{ text: '👨‍💼 Bantuan Admin' }, { text: '❌ Batal' }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+
+export const TELEGRAM_ORDER_TYPE_KEYBOARD = {
+  keyboard: [
+    [{ text: '🍽️ 1. Makan di Tempat (Dine-In)' }],
+    [{ text: '🛍️ 2. Bungkus (Takeaway)' }],
+    [{ text: '🛵 3. Pesan Antar (Delivery)' }],
+    [{ text: '❌ Batal' }],
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+};
+
+export const TELEGRAM_CONFIRM_KEYBOARD = {
+  keyboard: [
+    [{ text: '✅ YA, Buat Pesanan' }],
+    [{ text: '❌ Batal' }],
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+};
+
+export const TELEGRAM_CANCEL_KEYBOARD = {
+  keyboard: [
+    [{ text: '❌ Batal' }],
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+};
+
 /**
- * Mengirim pesan teks ke Telegram Chat ID dengan fallback otomatis jika entity markdown gagal diparse
+ * Mengatur menu command biru [Menu] di sebelah kiri kolom ketik chat Telegram
+ */
+export async function setTelegramBotCommands(
+  tokenOverride?: string
+): Promise<{ ok: boolean; message?: string; data?: any }> {
+  const token = (tokenOverride || (await getTelegramToken())).trim();
+  if (!token) return { ok: false, message: 'No token' };
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commands: [
+          { command: 'start', description: 'Mulai bot & buka menu utama' },
+          { command: 'menu', description: 'Katalog menu makanan & minuman' },
+          { command: 'order', description: 'Buat pesanan makanan baru' },
+          { command: 'status', description: 'Cek status pesanan Anda' },
+          { command: 'info', description: 'Info lokasi, jam & rekening' },
+          { command: 'admin', description: 'Hubungi admin/staf resto' },
+          { command: 'batal', description: 'Batalkan pesanan yang sedang dibuat' },
+        ],
+      }),
+    });
+    const data = await res.json();
+    return { ok: data.ok, message: data.description, data };
+  } catch (err: any) {
+    return { ok: false, message: err.message };
+  }
+}
+
+/**
+ * Mengirim pesan teks ke Telegram Chat ID dengan dukungan Reply Keyboard / Buttons
  */
 export async function sendTelegramMessage(
   chatId: string | number,
   text: string,
-  configs?: BotConfigMap
+  configs?: BotConfigMap,
+  options?: TelegramSendOptions
 ): Promise<{
   status: boolean;
   message?: string;
@@ -57,6 +133,13 @@ export async function sendTelegramMessage(
 
   const endpoint = `https://api.telegram.org/bot${token}/sendMessage`;
 
+  const bodyPayload: any = {
+    chat_id: targetChatId,
+    text: text,
+    parse_mode: options?.parse_mode || 'Markdown',
+    reply_markup: options?.reply_markup || TELEGRAM_MAIN_KEYBOARD,
+  };
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -65,11 +148,7 @@ export async function sendTelegramMessage(
     let res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: targetChatId,
-        text: text,
-        parse_mode: 'Markdown',
-      }),
+      body: JSON.stringify(bodyPayload),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -81,13 +160,16 @@ export async function sendTelegramMessage(
       const retryController = new AbortController();
       const retryTimeoutId = setTimeout(() => retryController.abort(), 15000);
 
+      const retryPayload: any = {
+        chat_id: targetChatId,
+        text: text,
+        reply_markup: bodyPayload.reply_markup,
+      };
+
       res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: targetChatId,
-          text: text,
-        }),
+        body: JSON.stringify(retryPayload),
         signal: retryController.signal,
       });
       clearTimeout(retryTimeoutId);
