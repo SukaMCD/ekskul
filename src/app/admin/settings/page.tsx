@@ -24,14 +24,23 @@ import {
   ExternalLink,
   Info,
   Check,
+  Eye,
+  EyeOff,
+  Copy,
 } from 'lucide-react';
 
 export default function AdminSettingsPage() {
-  const [activeTab, setActiveTab] = useState<'general' | 'gateway' | 'wablas' | 'templates' | 'whitelist' | 'simulator'>('simulator');
+  const [activeTab, setActiveTab] = useState<'general' | 'gateway' | 'wablas' | 'templates' | 'whitelist' | 'simulator' | 'payment'>('simulator');
   const [configs, setConfigs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Xendit Gateway State
+  const [showXenditKey, setShowXenditKey] = useState(false);
+  const [copiedXenditWebhook, setCopiedXenditWebhook] = useState(false);
+  const [checkingXenditStatus, setCheckingXenditStatus] = useState(false);
+  const [xenditStatusResult, setXenditStatusResult] = useState<any>(null);
 
   // Test Send WA State
   const [testPhone, setTestPhone] = useState('');
@@ -235,6 +244,21 @@ export default function AdminSettingsPage() {
     }
   };
 
+  // Check Xendit Webhook Status
+  const handleCheckXenditStatus = async () => {
+    setCheckingXenditStatus(true);
+    setXenditStatusResult(null);
+    try {
+      const res = await fetch('/api/webhook/xendit');
+      const data = await res.json();
+      setXenditStatusResult(data);
+    } catch (err: any) {
+      setXenditStatusResult({ status: false, error: err.message || 'Gagal menghubungi server webhook' });
+    } finally {
+      setCheckingXenditStatus(false);
+    }
+  };
+
   // Whitelist helper
   const whitelistList = (configs.whitelist_numbers || '')
     .split(',')
@@ -388,6 +412,7 @@ export default function AdminSettingsPage() {
           { key: 'simulator', label: 'Interactive Simulator (Sandbox)', icon: Bot },
           { key: 'general', label: 'Profil Restoran', icon: Store },
           { key: 'gateway', label: 'Gateway Bot (Telegram / WA)', icon: Key },
+          { key: 'payment', label: 'Payment Gateway (Xendit)', icon: CreditCard },
           { key: 'templates', label: 'Template Pesan & Bank', icon: MessageSquare },
           { key: 'whitelist', label: 'Mode Whitelist', icon: Shield },
         ].map((tab) => {
@@ -1203,6 +1228,173 @@ export default function AdminSettingsPage() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Payment Gateway (Xendit) */}
+      {activeTab === 'payment' && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="corporate-card bg-white p-6 border border-slate-200 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Xendit Payment Gateway</h3>
+                  <p className="text-xs text-slate-500">
+                    Otomasi pembayaran QRIS, Virtual Account, & E-Wallet untuk bot Telegram dengan auto-deduct stok database
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Toggle */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-600">Status Pembayaran Otomatis:</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleConfigChange('xendit_enabled', configs.xendit_enabled === '0' ? '1' : '0')
+                  }
+                  className={`px-3 py-1 rounded-lg font-bold text-xs transition-all ${
+                    configs.xendit_enabled !== '0'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {configs.xendit_enabled !== '0' ? 'AKTIF' : 'NON-AKTIF'}
+                </button>
+              </div>
+            </div>
+
+            {/* API Keys Configuration */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-700">Xendit Secret API Key</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowXenditKey(!showXenditKey)}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
+                  >
+                    {showXenditKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    <span>{showXenditKey ? 'Sembunyikan' : 'Lihat Key'}</span>
+                  </button>
+                </div>
+                <input
+                  type={showXenditKey ? 'text' : 'password'}
+                  value={configs.xendit_secret_key || ''}
+                  onChange={(e) => handleConfigChange('xendit_secret_key', e.target.value)}
+                  placeholder="xnd_development_... atau xnd_production_..."
+                  className="corporate-input w-full text-xs font-mono font-medium"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Dapatkan dari Xendit Dashboard &rarr; Settings &rarr; Developers &rarr; API Keys.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Webhook Verification Token (Callback Token)</label>
+                <input
+                  type="text"
+                  value={configs.xendit_webhook_token || ''}
+                  onChange={(e) => handleConfigChange('xendit_webhook_token', e.target.value)}
+                  placeholder="Callback verification token dari Xendit..."
+                  className="corporate-input w-full text-xs font-mono font-medium"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Dapat dilihat di Xendit Dashboard &rarr; Settings &rarr; Callbacks &rarr; Verification Token.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Webhook Configuration & Auto-Sync Stock */}
+          <div className="corporate-card bg-white p-6 border border-slate-200 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Webhook URL & Sinkronisasi Stok Real-Time</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Xendit akan memanggil URL ini saat pelanggan menyelesaikan pembayaran QRIS / Virtual Account
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCheckXenditStatus}
+                disabled={checkingXenditStatus}
+                className="corporate-btn-secondary py-1.5 px-3 text-xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${checkingXenditStatus ? 'animate-spin' : ''}`} />
+                <span>Cek Status Endpoint</span>
+              </button>
+            </div>
+
+            {/* URL Copy Box */}
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+              <div className="break-all text-slate-800 font-semibold">
+                https://ekskul-iota.vercel.app/api/webhook/xendit
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText('https://ekskul-iota.vercel.app/api/webhook/xendit');
+                  setCopiedXenditWebhook(true);
+                  setTimeout(() => setCopiedXenditWebhook(false), 2000);
+                }}
+                className="corporate-btn-primary py-1.5 px-3 text-xs shrink-0 self-start sm:self-auto"
+              >
+                {copiedXenditWebhook ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedXenditWebhook ? 'Tersalin!' : 'Salin URL'}</span>
+              </button>
+            </div>
+
+            {/* Endpoint Diagnostic Result */}
+            {xenditStatusResult && (
+              <div
+                className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
+                  xenditStatusResult.status
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>
+                    Endpoint Webhook Aktif & Siap Menerima Callback Xendit. (API Key:{' '}
+                    {xenditStatusResult.xendit_configured ? 'Terpasang' : 'Belum Terisi'})
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-500">
+                  {new Date(xenditStatusResult.server_time).toLocaleTimeString('id-ID')}
+                </span>
+              </div>
+            )}
+
+            {/* Feature Highlights Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 space-y-1">
+                <span className="font-bold text-blue-900 block">⚡ Invoice Otomatis di Telegram</span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Pelanggan otomatis menerima tombol link pembayaran interaktif di chat Telegram setelah konfirmasi pesanan.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 space-y-1">
+                <span className="font-bold text-emerald-900 block">📦 Potong Stok Otomatis</span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Saat callback status PAID diterima dari Xendit, stok menu di MongoDB otomatis dipotong sesuai jumlah item.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-purple-50/70 border border-purple-100 space-y-1">
+                <span className="font-bold text-purple-900 block">🔔 Notifikasi Lunas Real-Time</span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Akun Telegram pelanggan dan Admin langsung menerima pesan konfirmasi lunas & status pesanan beralih ke dapur.
+                </p>
+              </div>
             </div>
           </div>
         </div>

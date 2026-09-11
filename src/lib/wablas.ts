@@ -23,6 +23,9 @@ export interface BotConfigMap {
   welcome_message?: string;
   whitelist_mode?: string;
   whitelist_numbers?: string;
+  xendit_secret_key?: string;
+  xendit_webhook_token?: string;
+  xendit_enabled?: string;
   [key: string]: string | undefined;
 }
 
@@ -69,6 +72,9 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
     welcome_message: `Halo kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nSilakan ketik nomor pilihan berikut:\n1️⃣ *MENU* - Lihat Katalog Menu & Harga\n2️⃣ *ORDER* - Buat Pesanan Baru\n3️⃣ *STATUS* - Cek Status Pesanan\n4️⃣ *INFO* - Lokasi, Jam Buka & Rekening\n5️⃣ *ADMIN* - Bicara dengan Admin / Staf`,
     whitelist_mode: '0',
     whitelist_numbers: '',
+    xendit_secret_key: process.env.XENDIT_SECRET_KEY || '',
+    xendit_webhook_token: process.env.XENDIT_WEBHOOK_TOKEN || '',
+    xendit_enabled: process.env.XENDIT_ENABLED || '1',
   };
 
   configs.forEach((c) => {

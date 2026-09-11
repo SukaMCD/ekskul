@@ -8,6 +8,8 @@ export interface IMenu extends Document {
   price: number;
   imageUrl?: string;
   isAvailable: boolean;
+  stock: number;
+  trackStock: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,6 +23,8 @@ const MenuSchema: Schema<IMenu> = new Schema(
     price: { type: Number, required: true, min: 0 },
     imageUrl: { type: String, default: '' },
     isAvailable: { type: Boolean, default: true },
+    stock: { type: Number, default: 50, min: 0 },
+    trackStock: { type: Boolean, default: true },
   },
   {
     timestamps: true,

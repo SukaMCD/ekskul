@@ -59,6 +59,19 @@ export const TELEGRAM_CANCEL_KEYBOARD = {
   one_time_keyboard: true,
 };
 
+export function makeTelegramPaymentKeyboard(paymentUrl: string) {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: '💳 Bayar Sekarang (QRIS / VA / E-Wallet)',
+          url: paymentUrl,
+        },
+      ],
+    ],
+  };
+}
+
 /**
  * Mengatur menu command biru [Menu] di sebelah kiri kolom ketik chat Telegram
  */

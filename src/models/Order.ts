@@ -26,6 +26,10 @@ export interface IOrder extends Document {
   paymentStatus: 'unpaid' | 'paid' | 'verified';
   orderStatus: 'pending' | 'confirmed' | 'cooking' | 'ready' | 'delivered' | 'cancelled';
   proofImage?: string;
+  xenditInvoiceId?: string;
+  xenditInvoiceUrl?: string;
+  paymentChannel?: string;
+  paidAt?: Date;
   items: IOrderItem[];
   createdAt: Date;
   updatedAt: Date;
@@ -75,6 +79,10 @@ const OrderSchema: Schema<IOrder> = new Schema(
       index: true,
     },
     proofImage: { type: String, default: '' },
+    xenditInvoiceId: { type: String, default: '', index: true },
+    xenditInvoiceUrl: { type: String, default: '' },
+    paymentChannel: { type: String, default: '' },
+    paidAt: { type: Date },
     items: [OrderItemSchema],
   },
   {

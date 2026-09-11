@@ -35,6 +35,8 @@ export default function AdminMenuPage() {
     price: '',
     imageUrl: '',
     isAvailable: true,
+    stock: '50',
+    trackStock: true,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,6 +79,8 @@ export default function AdminMenuPage() {
       price: '',
       imageUrl: '',
       isAvailable: true,
+      stock: '50',
+      trackStock: true,
     });
     setModalOpen(true);
   };
@@ -92,6 +96,8 @@ export default function AdminMenuPage() {
       price: menu.price.toString(),
       imageUrl: menu.imageUrl || '',
       isAvailable: menu.isAvailable,
+      stock: (menu.stock !== undefined ? menu.stock : 50).toString(),
+      trackStock: menu.trackStock !== false,
     });
     setModalOpen(true);
   };
@@ -109,6 +115,8 @@ export default function AdminMenuPage() {
         body: JSON.stringify({
           ...formData,
           price: Number(formData.price),
+          stock: Number(formData.stock),
+          trackStock: Boolean(formData.trackStock),
         }),
       });
 
@@ -288,9 +296,24 @@ export default function AdminMenuPage() {
               {/* Product Info */}
               <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
                 <div className="space-y-1">
-                  <p className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">
-                    {typeof menu.categoryId === 'object' ? menu.categoryId?.name : 'Kategori'}
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">
+                      {typeof menu.categoryId === 'object' ? menu.categoryId?.name : 'Kategori'}
+                    </p>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        !menu.trackStock
+                          ? 'bg-slate-100 text-slate-600'
+                          : (menu.stock !== undefined ? menu.stock : 50) <= 0
+                          ? 'bg-rose-100 text-rose-700'
+                          : (menu.stock !== undefined ? menu.stock : 50) <= 5
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-emerald-50 text-emerald-700'
+                      }`}
+                    >
+                      {!menu.trackStock ? 'Stok: ∞' : `Stok: ${menu.stock !== undefined ? menu.stock : 50}`}
+                    </span>
+                  </div>
                   <h3 className="font-bold text-sm text-slate-900 line-clamp-1">{menu.name}</h3>
                   <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
                     {menu.description || 'Tidak ada deskripsi.'}
@@ -407,16 +430,30 @@ export default function AdminMenuPage() {
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Harga (Rp)</label>
-                <input
-                  type="number"
-                  required
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  placeholder="20000"
-                  className="corporate-input w-full text-xs font-bold font-mono"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Harga (Rp)</label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.price}
+                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                    placeholder="20000"
+                    className="corporate-input w-full text-xs font-bold font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Stok Porsi</label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={formData.stock}
+                    onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                    placeholder="50"
+                    className="corporate-input w-full text-xs font-bold font-mono"
+                  />
+                </div>
               </div>
 
               <div>
@@ -441,17 +478,31 @@ export default function AdminMenuPage() {
                 />
               </div>
 
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="menuAvailable"
-                  checked={formData.isAvailable}
-                  onChange={(e) => setFormData({ ...formData, isAvailable: e.target.checked })}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <label htmlFor="menuAvailable" className="font-semibold text-slate-700 cursor-pointer">
-                  Menu Tersedia (Ready untuk dipesan via WhatsApp)
-                </label>
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="menuAvailable"
+                    checked={formData.isAvailable}
+                    onChange={(e) => setFormData({ ...formData, isAvailable: e.target.checked })}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <label htmlFor="menuAvailable" className="font-semibold text-slate-700 cursor-pointer">
+                    Menu Tersedia (Ready untuk dipesan via Telegram/WA)
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="trackStock"
+                    checked={formData.trackStock}
+                    onChange={(e) => setFormData({ ...formData, trackStock: e.target.checked })}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <label htmlFor="trackStock" className="font-semibold text-slate-700 cursor-pointer">
+                    Pantau Stok (Otomatis berkurang saat pelanggan membayar via Xendit)
+                  </label>
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">

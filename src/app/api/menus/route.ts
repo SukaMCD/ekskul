@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { categoryId, code, name, description, price, imageUrl, isAvailable } = await request.json();
+    const { categoryId, code, name, description, price, imageUrl, isAvailable, stock, trackStock } = await request.json();
 
     if (!categoryId || !code || !name || price === undefined) {
       return NextResponse.json(
@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
       price: Number(price),
       imageUrl: (imageUrl || '').trim(),
       isAvailable: isAvailable !== false,
+      stock: stock !== undefined ? Math.max(0, Number(stock)) : 50,
+      trackStock: trackStock !== false,
     });
 
     const populated = await Menu.findById(menu._id).populate('categoryId');

@@ -15,7 +15,7 @@ export async function PUT(
   try {
     const resolvedParams = await Promise.resolve(params);
     const { id } = resolvedParams;
-    const { categoryId, code, name, description, price, imageUrl, isAvailable } = await request.json();
+    const { categoryId, code, name, description, price, imageUrl, isAvailable, stock, trackStock } = await request.json();
     await connectDB();
 
     const menu = await Menu.findById(id);
@@ -40,6 +40,13 @@ export async function PUT(
     if (price !== undefined) menu.price = Number(price);
     if (imageUrl !== undefined) menu.imageUrl = imageUrl.trim();
     if (typeof isAvailable === 'boolean') menu.isAvailable = isAvailable;
+    if (stock !== undefined) {
+      menu.stock = Math.max(0, Number(stock));
+      if (menu.stock === 0) {
+        menu.isAvailable = false;
+      }
+    }
+    if (typeof trackStock === 'boolean') menu.trackStock = trackStock;
 
     await menu.save();
     const updated = await Menu.findById(menu._id).populate('categoryId');

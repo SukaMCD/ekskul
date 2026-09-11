@@ -21,7 +21,9 @@ import {
   TELEGRAM_ORDER_TYPE_KEYBOARD,
   TELEGRAM_CONFIRM_KEYBOARD,
   TELEGRAM_CANCEL_KEYBOARD,
+  makeTelegramPaymentKeyboard,
 } from './telegram';
+import { createXenditInvoice } from './xendit';
 
 export async function generateInvoiceNo(): Promise<string> {
   await connectDB();
@@ -66,7 +68,8 @@ export async function getFormattedMenuForBot(): Promise<string> {
     for (const m of catMenus) {
       processedMenuIds.add(m._id.toString());
       const priceStr = 'Rp ' + Number(m.price).toLocaleString('id-ID');
-      text += `• *[${m.code}]* ${m.name} : *${priceStr}*\n`;
+      const stockInfo = m.trackStock ? ` _(Stok: ${m.stock !== undefined ? m.stock : 50})_` : '';
+      text += `• *[${m.code}]* ${m.name} : *${priceStr}*${stockInfo}\n`;
       if (m.description) {
         text += `  _${m.description}_\n`;
       }
@@ -78,11 +81,13 @@ export async function getFormattedMenuForBot(): Promise<string> {
   const otherMenus = menus.filter((m: any) => !processedMenuIds.has(m._id.toString()));
   if (otherMenus.length > 0) {
     if (categories.length > 0) {
-      text += `🍽️ *MENU LAINNYA*\n─────────────────────────\n`;
+      text += `🍽️ *MENU LAINNYA*\n`;
+      text += "─────────────────────────\n";
     }
     for (const m of otherMenus) {
       const priceStr = 'Rp ' + Number(m.price).toLocaleString('id-ID');
-      text += `• *[${m.code}]* ${m.name} : *${priceStr}*\n`;
+      const stockInfo = m.trackStock ? ` _(Stok: ${m.stock !== undefined ? m.stock : 50})_` : '';
+      text += `• *[${m.code}]* ${m.name} : *${priceStr}*${stockInfo}\n`;
       if (m.description) {
         text += `  _${m.description}_\n`;
       }
@@ -129,7 +134,10 @@ export interface InboundPayload {
 type SendFn = (
   targetPhone: string,
   msg: string,
-  options?: { keyboard?: 'main' | 'order_type' | 'confirm' | 'cancel' | 'none' }
+  options?: {
+    keyboard?: 'main' | 'order_type' | 'confirm' | 'cancel' | 'none';
+    replyMarkup?: any;
+  }
 ) => Promise<void>;
 
 async function handleCheckOrderStatus(
@@ -212,6 +220,7 @@ async function handleProcessOrderItems(
   const entries = text.split(/[,;\n]+/);
   const parsedItems: any[] = [];
   const unrecognized: string[] = [];
+  const stockErrors: string[] = [];
   let totalItems = 0;
   let subtotal = 0;
 
@@ -226,6 +235,16 @@ async function handleProcessOrderItems(
 
       const menu = await Menu.findOne({ code, isAvailable: true });
       if (menu) {
+        const availableStock = menu.stock !== undefined ? menu.stock : 50;
+        if (menu.trackStock && availableStock <= 0) {
+          stockErrors.push(`• *${menu.name}* (${code}): Stok Habis ❌`);
+          continue;
+        }
+        if (menu.trackStock && qty > availableStock) {
+          stockErrors.push(`• *${menu.name}* (${code}): Sisa stok hanya *${availableStock}* porsi (dipesan: ${qty}) ⚠️`);
+          continue;
+        }
+
         const itemSub = Number(menu.price) * qty;
         parsedItems.push({
           menuId: menu._id,
@@ -244,6 +263,14 @@ async function handleProcessOrderItems(
     } else {
       unrecognized.push(trimmed);
     }
+  }
+
+  if (stockErrors.length > 0 && parsedItems.length === 0) {
+    let msg = "⚠️ *Maaf kak, item yang dipesan tidak dapat diproses karena kendala stok:*\n";
+    msg += stockErrors.join('\n') + '\n\n';
+    msg += "Ketik *MENU* untuk melihat daftar menu dan stok yang tersedia, atau ketik *BATAL* untuk keluar.";
+    await sendMsg(phone, msg);
+    return { status: true, message: 'Stock not available' };
   }
 
   if (parsedItems.length === 0) {
@@ -272,6 +299,10 @@ async function handleProcessOrderItems(
   }
   reply += `Subtotal: *Rp ${subtotal.toLocaleString('id-ID')}*\n`;
 
+  if (stockErrors.length > 0) {
+    reply += `\n⚠️ *Catatan Stok Dilewati:*\n${stockErrors.join('\n')}\n`;
+  }
+
   if (unrecognized.length > 0) {
     reply += `\n_(Catatan: Kode [${unrecognized.join(', ')}] tidak ditemukan dan dilewati)_\n`;
   }
@@ -295,9 +326,81 @@ async function handleFinalizeOrder(
   sendMsg: SendFn
 ): Promise<{ status: boolean; message: string }> {
   await connectDB();
+
+  // 1. Verifikasi ketersediaan stok sebelum pesanan dibuat
+  const unavailableList: string[] = [];
+  const items = tempData.items || [];
+  for (const it of items) {
+    let menuDoc = null;
+    if (it.menuId) {
+      menuDoc = await Menu.findById(it.menuId);
+    }
+    if (!menuDoc && it.menuCode) {
+      menuDoc = await Menu.findOne({ code: it.menuCode.toUpperCase() });
+    }
+    if (menuDoc && menuDoc.trackStock) {
+      const stock = menuDoc.stock !== undefined ? menuDoc.stock : 50;
+      if (stock < it.quantity) {
+        unavailableList.push(`• *${menuDoc.name}* (sisa ${stock}, dipesan ${it.quantity})`);
+      }
+    }
+  }
+
+  if (unavailableList.length > 0) {
+    session.state = 'IDLE';
+    session.tempData = {};
+    await session.save();
+    await sendMsg(
+      phone,
+      `⚠️ *Pesanan tidak dapat diproses karena stok telah berubah:*\n${unavailableList.join('\n')}\n\nSilakan ketik *ORDER* untuk memilih menu kembali.`
+    );
+    return { status: false, message: 'Stock unavailable at finalize' };
+  }
+
   const invoiceNo = await generateInvoiceNo();
   const adminPhone = normalizePhone(configs.admin_phone || '');
   const bankInfo = configs.bank_info || 'Pembayaran BCA / QRIS';
+
+  // 2. Buat invoice Xendit jika diaktifkan & API key terisi
+  const xenditSecret = (configs.xendit_secret_key || '').trim();
+  const isXenditActive = configs.xendit_enabled !== '0' && Boolean(xenditSecret);
+  let xenditInvoiceUrl = '';
+  let xenditInvoiceId = '';
+
+  const grandTotal = Number(tempData.grand_total || 0);
+
+  if (isXenditActive && grandTotal > 0) {
+    const xenditItems = items.map((it: any) => ({
+      name: it.menuName,
+      quantity: it.quantity,
+      price: it.price,
+    }));
+
+    if (Number(tempData.delivery_fee || 0) > 0) {
+      xenditItems.push({
+        name: 'Ongkos Kirim (Delivery)',
+        quantity: 1,
+        price: Number(tempData.delivery_fee),
+      });
+    }
+
+    const xenditRes = await createXenditInvoice({
+      externalId: invoiceNo,
+      amount: grandTotal,
+      description: `Pesanan #${invoiceNo} - ${tempData.customer_name || 'Pelanggan'}`,
+      customerName: tempData.customer_name || 'Pelanggan',
+      customerPhone: phone,
+      items: xenditItems,
+      secretKey: xenditSecret,
+    });
+
+    if (xenditRes.success && xenditRes.data) {
+      xenditInvoiceUrl = xenditRes.data.invoice_url;
+      xenditInvoiceId = xenditRes.data.id;
+    } else {
+      console.warn('[BOT] Xendit invoice creation error, fallback to manual transfer:', xenditRes.error);
+    }
+  }
 
   const orderData = {
     invoiceNo,
@@ -310,11 +413,13 @@ async function handleFinalizeOrder(
     subtotal: Number(tempData.subtotal || 0),
     deliveryFee: Number(tempData.delivery_fee || 0),
     discount: 0,
-    grandTotal: Number(tempData.grand_total || 0),
-    paymentMethod: 'Transfer Bank / QRIS',
+    grandTotal: grandTotal,
+    paymentMethod: xenditInvoiceUrl ? 'Xendit (QRIS / VA / E-Wallet)' : 'Transfer Bank / QRIS',
     paymentStatus: 'unpaid',
     orderStatus: 'pending',
-    items: tempData.items || [],
+    xenditInvoiceId,
+    xenditInvoiceUrl,
+    items: items,
   };
 
   const newOrder = await Order.create(orderData);
@@ -330,12 +435,27 @@ async function handleFinalizeOrder(
   invoiceMsg += "Status: *Menunggu Pembayaran ⏳*\n";
   invoiceMsg += `Total Tagihan: *Rp ${Number(newOrder.grandTotal).toLocaleString('id-ID')}*\n`;
   invoiceMsg += "═════════════════════════\n\n";
-  invoiceMsg += "💳 *CARA PEMBAYARAN:*\n";
-  invoiceMsg += `${bankInfo}\n\n`;
-  invoiceMsg += "📸 *PENTING:* Setelah transfer, silakan *kirim foto bukti transfer* langsung ke chat ini ya kak agar pesanan langsung kami proses!\n\n";
-  invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏😊";
 
-  await sendMsg(phone, invoiceMsg);
+  if (xenditInvoiceUrl) {
+    invoiceMsg += "💳 *PEMBAYARAN OTOMATIS (XENDIT):*\n";
+    invoiceMsg += "Silakan klik tombol *Bayar Sekarang* di bawah ini untuk membayar via:\n";
+    invoiceMsg += "• *QRIS* (GoPay, OVO, DANA, ShopeePay, LinkAja)\n";
+    invoiceMsg += "• *Virtual Account* (BCA, BRI, BNI, Mandiri, Permata)\n";
+    invoiceMsg += "• *E-Wallet / Retail Outlets*\n\n";
+    invoiceMsg += `🔗 *Link Pembayaran:*\n${xenditInvoiceUrl}\n\n`;
+    invoiceMsg += "⚡ *INFO OTOMATIS:* Begitu pembayaran berhasil, pesanan Anda *otomatis terverifikasi LUNAS* dan langsung dimasak di dapur tanpa perlu kirim bukti transfer!\n\n";
+    invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏🍽️";
+
+    const paymentMarkup = makeTelegramPaymentKeyboard(xenditInvoiceUrl);
+    await sendMsg(phone, invoiceMsg, { replyMarkup: paymentMarkup });
+  } else {
+    invoiceMsg += "💳 *CARA PEMBAYARAN MANUAL:*\n";
+    invoiceMsg += `${bankInfo}\n\n`;
+    invoiceMsg += "📸 *PENTING:* Setelah transfer, silakan *kirim foto bukti transfer* langsung ke chat ini ya kak agar pesanan langsung kami proses!\n\n";
+    invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏😊";
+
+    await sendMsg(phone, invoiceMsg);
+  }
 
   const adminChatId = String(configs.telegram_admin_chat_id || '').trim();
   if (adminPhone || adminChatId) {
@@ -360,8 +480,13 @@ async function handleFinalizeOrder(
     }
     adminAlert += "─────────────────────────\n";
     adminAlert += `💰 *Total: Rp ${Number(newOrder.grandTotal).toLocaleString('id-ID')}*\n`;
-    adminAlert += "Status: *Belum Bayar*\n\n";
-    adminAlert += "_Buka Admin Dashboard untuk update status atau kirim notifikasi siap._";
+    adminAlert += `Metode: *${newOrder.paymentMethod}*\n`;
+    if (xenditInvoiceUrl) {
+      adminAlert += `Status: *Menunggu Bayar via Xendit*\n\n`;
+    } else {
+      adminAlert += "Status: *Belum Bayar (Menunggu Transfer)*\n\n";
+    }
+    adminAlert += "_Buka Admin Dashboard untuk update status atau pantau status bot._";
 
     if (adminChatId) {
       await sendTelegramMessage(adminChatId, adminAlert, configs);
@@ -475,17 +600,23 @@ export async function processInboundWebhook(
   const sendMsg: SendFn = async (
     targetPhone: string,
     msg: string,
-    opts?: { keyboard?: 'main' | 'order_type' | 'confirm' | 'cancel' | 'none' }
+    opts?: {
+      keyboard?: 'main' | 'order_type' | 'confirm' | 'cancel' | 'none';
+      replyMarkup?: any;
+    }
   ) => {
     replies.push(msg);
     if (isSimulation) {
       await logBotMessage(targetPhone, 'outbound', isTelegram ? 'telegram_text' : 'text', msg, '', 'simulated');
     } else if (isTelegram || configs.gateway_provider === 'telegram') {
-      let replyMarkup: any = TELEGRAM_MAIN_KEYBOARD;
-      if (opts?.keyboard === 'order_type') replyMarkup = TELEGRAM_ORDER_TYPE_KEYBOARD;
-      else if (opts?.keyboard === 'confirm') replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
-      else if (opts?.keyboard === 'cancel') replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
-      else if (opts?.keyboard === 'none') replyMarkup = undefined;
+      let replyMarkup: any = opts?.replyMarkup;
+      if (!replyMarkup) {
+        if (opts?.keyboard === 'order_type') replyMarkup = TELEGRAM_ORDER_TYPE_KEYBOARD;
+        else if (opts?.keyboard === 'confirm') replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
+        else if (opts?.keyboard === 'cancel') replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
+        else if (opts?.keyboard === 'none') replyMarkup = undefined;
+        else replyMarkup = TELEGRAM_MAIN_KEYBOARD;
+      }
 
       await sendTelegramMessage(targetPhone, msg, configs, { reply_markup: replyMarkup });
     } else {
