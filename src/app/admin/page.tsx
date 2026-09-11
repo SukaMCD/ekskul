@@ -217,7 +217,7 @@ export default function AdminDashboardPage() {
                         </span>
                       </td>
                       <td className="px-3.5 py-3 font-bold text-slate-900">
-                        {formatRupiah(ord.totalAmount)}
+                        {formatRupiah(ord.grandTotal ?? ord.totalAmount ?? 0)}
                       </td>
                       <td className="px-3.5 py-3">
                         {getStatusBadge(ord.orderStatus)}

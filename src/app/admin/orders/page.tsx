@@ -123,6 +123,7 @@ export default function AdminOrdersPage() {
   const getPaymentStatusPill = (status: string) => {
     switch (status) {
       case 'paid':
+      case 'verified':
         return <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">LUNAS</span>;
       case 'refunded':
         return <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">REFUND</span>;
@@ -255,14 +256,14 @@ export default function AdminOrdersPage() {
                     </td>
                     <td className="px-4 py-3.5 max-w-[200px]">
                       <p className="truncate text-slate-600 font-medium">
-                        {ord.items?.map((i: any) => `${i.menuName} x${i.qty}`).join(', ') || '-'}
+                        {ord.items?.map((i: any) => `${i.menuName} x${i.quantity ?? i.qty ?? 1}`).join(', ') || '-'}
                       </p>
                       <p className="text-[10px] text-slate-400">
-                        Total {ord.items?.reduce((acc: number, cur: any) => acc + cur.qty, 0) || 0} item
+                        Total {ord.totalItems || ord.items?.reduce((acc: number, cur: any) => acc + (cur.quantity ?? cur.qty ?? 1), 0) || 0} item
                       </p>
                     </td>
                     <td className="px-4 py-3.5">
-                      <p className="font-extrabold text-slate-900">{formatRupiah(ord.totalAmount)}</p>
+                      <p className="font-extrabold text-slate-900">{formatRupiah(ord.grandTotal ?? ord.totalAmount ?? 0)}</p>
                       {ord.deliveryFee > 0 && (
                         <p className="text-[10px] text-slate-400">
                           (Termasuk Ongkir {formatRupiah(ord.deliveryFee)})
@@ -335,7 +336,14 @@ export default function AdminOrdersPage() {
                   <span>Pengiriman & Catatan</span>
                 </div>
                 <p><span className="text-slate-400">Alamat:</span> <span className="text-slate-800 font-medium">{selectedOrder.deliveryAddress || '-'}</span></p>
-                <p><span className="text-slate-400">Catatan:</span> <span className="text-slate-800 italic">{selectedOrder.customerNotes || 'Tidak ada catatan'}</span></p>
+                <p><span className="text-slate-400">Catatan:</span> <span className="text-slate-800 italic">{selectedOrder.notes || selectedOrder.customerNotes || 'Tidak ada catatan'}</span></p>
+                <p><span className="text-slate-400">Metode Bayar:</span> <strong className="text-slate-800">{selectedOrder.paymentMethod || 'Manual'}</strong></p>
+                {selectedOrder.paymentChannel && (
+                  <p><span className="text-slate-400">Channel:</span> <strong className="text-emerald-700 font-bold">{selectedOrder.paymentChannel}</strong></p>
+                )}
+                {selectedOrder.paidAt && (
+                  <p><span className="text-slate-400">Waktu Bayar:</span> <strong className="text-slate-800">{new Date(selectedOrder.paidAt).toLocaleString('id-ID')}</strong></p>
+                )}
               </div>
             </div>
 
@@ -359,7 +367,7 @@ export default function AdminOrdersPage() {
                           {item.menuName}
                           <span className="text-[10px] text-slate-400 block font-normal">{item.menuCode}</span>
                         </td>
-                        <td className="px-3.5 py-2.5 text-center text-slate-700">{item.qty}</td>
+                        <td className="px-3.5 py-2.5 text-center text-slate-700">{item.quantity ?? item.qty ?? 1}</td>
                         <td className="px-3.5 py-2.5 text-right text-slate-600">{formatRupiah(item.price)}</td>
                         <td className="px-3.5 py-2.5 text-right font-bold text-slate-900">{formatRupiah(item.subtotal)}</td>
                       </tr>
@@ -372,23 +380,45 @@ export default function AdminOrdersPage() {
                     )}
                     <tr className="bg-slate-50/80 font-bold border-t border-slate-200">
                       <td colSpan={3} className="px-3.5 py-2.5 text-right text-slate-800">TOTAL PEMBAYARAN:</td>
-                      <td className="px-3.5 py-2.5 text-right text-base text-blue-700">{formatRupiah(selectedOrder.totalAmount)}</td>
+                      <td className="px-3.5 py-2.5 text-right text-base text-blue-700">{formatRupiah(selectedOrder.grandTotal ?? selectedOrder.totalAmount ?? 0)}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
+            {/* Xendit Invoice Link (if available) */}
+            {selectedOrder.xenditInvoiceUrl && (
+              <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-blue-600" />
+                  <div>
+                    <span className="font-bold text-blue-900 block">Xendit Invoice Portal</span>
+                    <span className="text-[11px] text-blue-700 font-mono">{selectedOrder.xenditInvoiceId || selectedOrder.invoiceNo}</span>
+                  </div>
+                </div>
+                <a
+                  href={selectedOrder.xenditInvoiceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold text-[11px] hover:bg-blue-700 transition flex items-center gap-1"
+                >
+                  <span>Buka Invoice</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+
             {/* Payment Proof Preview (if any) */}
-            {selectedOrder.paymentProofUrl && (
+            {(selectedOrder.proofImage || selectedOrder.paymentProofUrl) && (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <CreditCard className="w-3.5 h-3.5 text-blue-600" />
-                    Bukti Transfer Diterima via WA:
+                    Bukti Pembayaran / Struk:
                   </span>
                   <a
-                    href={selectedOrder.paymentProofUrl}
+                    href={selectedOrder.proofImage || selectedOrder.paymentProofUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-xs font-semibold text-blue-600 flex items-center gap-1 hover:underline"
@@ -398,7 +428,7 @@ export default function AdminOrdersPage() {
                   </a>
                 </div>
                 <img
-                  src={selectedOrder.paymentProofUrl}
+                  src={selectedOrder.proofImage || selectedOrder.paymentProofUrl}
                   alt="Bukti Transfer"
                   className="max-h-48 rounded-lg border border-slate-200 object-cover"
                 />
@@ -429,12 +459,12 @@ export default function AdminOrdersPage() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">Status Pembayaran</label>
                   <select
-                    value={newPaymentStatus}
+                    value={newPaymentStatus === 'verified' ? 'paid' : newPaymentStatus}
                     onChange={(e) => setNewPaymentStatus(e.target.value)}
                     className="corporate-input w-full text-xs font-semibold"
                   >
                     <option value="unpaid">Unpaid (Belum Bayar)</option>
-                    <option value="paid">Paid (Lunas)</option>
+                    <option value="paid">Paid / Verified (Lunas)</option>
                     <option value="refunded">Refunded</option>
                   </select>
                 </div>
