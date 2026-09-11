@@ -26,6 +26,9 @@ export interface BotConfigMap {
   xendit_secret_key?: string;
   xendit_webhook_token?: string;
   xendit_enabled?: string;
+  groq_api_key?: string;
+  groq_model?: string;
+  groq_enabled?: string;
   [key: string]: string | undefined;
 }
 
@@ -75,6 +78,9 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
     xendit_secret_key: process.env.XENDIT_SECRET_KEY || '',
     xendit_webhook_token: process.env.XENDIT_WEBHOOK_TOKEN || '',
     xendit_enabled: process.env.XENDIT_ENABLED || '1',
+    groq_api_key: process.env.GROQ_API_KEY || '',
+    groq_model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+    groq_enabled: process.env.GROQ_ENABLED || '1',
   };
 
   configs.forEach((c) => {

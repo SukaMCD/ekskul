@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 
 export default function AdminSettingsPage() {
-  const [activeTab, setActiveTab] = useState<'general' | 'gateway' | 'wablas' | 'templates' | 'whitelist' | 'simulator' | 'payment'>('simulator');
+  const [activeTab, setActiveTab] = useState<'general' | 'gateway' | 'wablas' | 'templates' | 'whitelist' | 'simulator' | 'payment' | 'ai'>('simulator');
   const [configs, setConfigs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,6 +41,12 @@ export default function AdminSettingsPage() {
   const [copiedXenditWebhook, setCopiedXenditWebhook] = useState(false);
   const [checkingXenditStatus, setCheckingXenditStatus] = useState(false);
   const [xenditStatusResult, setXenditStatusResult] = useState<any>(null);
+
+  // Groq AI Chatbot State
+  const [showGroqKey, setShowGroqKey] = useState(false);
+  const [testGroqPrompt, setTestGroqPrompt] = useState('Menu apa saja yang paling enak dan rekomendasi untuk makan siang?');
+  const [testingGroq, setTestingGroq] = useState(false);
+  const [groqTestResult, setGroqTestResult] = useState<{ status: boolean; reply?: string; model?: string; error?: string } | null>(null);
 
   // Test Send WA State
   const [testPhone, setTestPhone] = useState('');
@@ -259,6 +265,26 @@ export default function AdminSettingsPage() {
     }
   };
 
+  // Test Groq AI Chatbot
+  const handleTestGroq = async () => {
+    if (!testGroqPrompt.trim()) return;
+    setTestingGroq(true);
+    setGroqTestResult(null);
+    try {
+      const res = await fetch('/api/settings/test-groq', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: testGroqPrompt }),
+      });
+      const data = await res.json();
+      setGroqTestResult(data);
+    } catch (err: any) {
+      setGroqTestResult({ status: false, error: err.message || 'Gagal menghubungi server' });
+    } finally {
+      setTestingGroq(false);
+    }
+  };
+
   // Whitelist helper
   const whitelistList = (configs.whitelist_numbers || '')
     .split(',')
@@ -413,6 +439,7 @@ export default function AdminSettingsPage() {
           { key: 'general', label: 'Profil Restoran', icon: Store },
           { key: 'gateway', label: 'Gateway Bot (Telegram / WA)', icon: Key },
           { key: 'payment', label: 'Payment Gateway (Xendit)', icon: CreditCard },
+          { key: 'ai', label: 'AI Chatbot (Groq)', icon: Sparkles },
           { key: 'templates', label: 'Template Pesan & Bank', icon: MessageSquare },
           { key: 'whitelist', label: 'Mode Whitelist', icon: Shield },
         ].map((tab) => {
@@ -1393,6 +1420,214 @@ export default function AdminSettingsPage() {
                 <span className="font-bold text-purple-900 block">🔔 Notifikasi Lunas Real-Time</span>
                 <p className="text-slate-600 text-[11px] leading-relaxed">
                   Akun Telegram pelanggan dan Admin langsung menerima pesan konfirmasi lunas & status pesanan beralih ke dapur.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: AI Chatbot (Groq) */}
+      {activeTab === 'ai' && (
+        <div className="space-y-6">
+          <div className="corporate-card p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-900">AI Customer Service Chatbot (Groq)</h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">
+                      Ultra Fast Inference
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Menjawab pertanyaan pelanggan secara pintar tentang menu resto, rekomendasi makanan, rasa pedas/manis, jam operasional, dan lokasi.
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Indicator */}
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                    configs.groq_enabled === '1' || configs.groq_enabled === undefined
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      configs.groq_enabled === '1' || configs.groq_enabled === undefined
+                        ? 'bg-emerald-500 animate-pulse'
+                        : 'bg-slate-400'
+                    }`}
+                  />
+                  {configs.groq_enabled === '1' || configs.groq_enabled === undefined ? 'AI Aktif' : 'Nonaktif'}
+                </span>
+              </div>
+            </div>
+
+            {/* Toggle Switch */}
+            <div className="flex items-center justify-between p-4 rounded-xl bg-purple-50/50 border border-purple-100">
+              <div>
+                <span className="text-xs font-bold text-purple-950 block">Aktivasi Chatbot Groq AI</span>
+                <span className="text-[11px] text-purple-700">
+                  Saat diaktifkan, pertanyaan umum pelanggan di Telegram atau WhatsApp akan dijawab langsung oleh AI dengan referensi menu database.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  handleConfigChange(
+                    'groq_enabled',
+                    configs.groq_enabled === '0' ? '1' : '0'
+                  )
+                }
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                  configs.groq_enabled === '1' || configs.groq_enabled === undefined
+                    ? 'bg-purple-600'
+                    : 'bg-slate-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    configs.groq_enabled === '1' || configs.groq_enabled === undefined
+                      ? 'translate-x-5'
+                      : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* API Key Input */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <label className="font-semibold text-slate-700">Groq API Key</label>
+                <button
+                  type="button"
+                  onClick={() => setShowGroqKey(!showGroqKey)}
+                  className="text-purple-600 hover:text-purple-700 font-medium flex items-center gap-1"
+                >
+                  {showGroqKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  <span>{showGroqKey ? 'Sembunyikan' : 'Lihat Key'}</span>
+                </button>
+              </div>
+              <input
+                name="groq_api_key"
+                type={showGroqKey ? 'text' : 'password'}
+                value={configs.groq_api_key ?? ''}
+                onChange={(e) => handleConfigChange('groq_api_key', e.target.value)}
+                placeholder="gsk_..."
+                className="corporate-input text-xs font-mono"
+              />
+              <p className="text-[11px] text-slate-400">
+                Kunci API dari Groq Cloud Dashboard (<a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-purple-600 hover:underline">console.groq.com</a>).
+              </p>
+            </div>
+
+            {/* Model Selection */}
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 text-xs">Pilihan Model AI Groq</label>
+              <select
+                name="groq_model"
+                value={configs.groq_model ?? 'openai/gpt-oss-120b'}
+                onChange={(e) => handleConfigChange('groq_model', e.target.value)}
+                className="corporate-input text-xs"
+              >
+                <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Sangat Cerdas & Direkomendasikan)</option>
+                <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b (Super Cepat & Ringan)</option>
+                <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Cepat)</option>
+              </select>
+              <p className="text-[11px] text-slate-400">
+                Model ini berjalan dengan latensi ultra rendah (di bawah 500ms) di infrastruktur LPU Groq.
+              </p>
+            </div>
+
+            {/* Testing Sandbox */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-600" />
+                <span className="text-xs font-bold text-slate-800">Uji Coba Tanya Jawab AI (Live Test)</span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Ketik pertanyaan layaknya pelanggan yang sedang chat di Telegram / WhatsApp untuk melihat respon AI secara langsung.
+              </p>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={testGroqPrompt}
+                  onChange={(e) => setTestGroqPrompt(e.target.value)}
+                  placeholder="Contoh: Menu apa yang enak dan pedas kak?"
+                  className="corporate-input text-xs flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleTestGroq();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleTestGroq}
+                  disabled={testingGroq || !testGroqPrompt.trim()}
+                  className="px-4 py-2 rounded-xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-700 transition-colors flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${testingGroq ? 'animate-spin' : ''}`} />
+                  <span>{testingGroq ? 'Menjawab...' : 'Tanya AI'}</span>
+                </button>
+              </div>
+
+              {groqTestResult && (
+                <div
+                  className={`p-3.5 rounded-xl text-xs space-y-2 border ${
+                    groqTestResult.status
+                      ? 'bg-purple-50/80 border-purple-200 text-purple-950'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-bold text-[11px]">
+                    <span className="flex items-center gap-1">
+                      {groqTestResult.status ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Respon AI ({groqTestResult.model}):</span>
+                        </>
+                      ) : (
+                        <span>⚠️ Gagal Memanggil Groq:</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="whitespace-pre-wrap font-sans text-xs leading-relaxed bg-white/80 p-3 rounded-lg border border-purple-100/60 shadow-xs">
+                    {groqTestResult.reply || groqTestResult.error}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Feature Highlights Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+              <div className="p-3 rounded-xl bg-purple-50/70 border border-purple-100 space-y-1">
+                <span className="font-bold text-purple-900 block">🧠 Pengetahuan Menu Terpadu</span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  AI membaca database menu & stok terkini secara real-time, sehingga rekomendasi selalu akurat dengan ketersediaan dapur.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 space-y-1">
+                <span className="font-bold text-blue-900 block">💬 Bahasa Sopan & Alami</span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Diprogram dengan gaya bahasa Indonesia yang ramah, santun, dan responsif layaknya pelayan restoran profesional.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 space-y-1">
+                <span className="font-bold text-emerald-900 block">🛒 Ajakan Checkout Terarah</span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Setelah memberi rekomendasi, AI dengan ramah mengarahkan pelanggan untuk menekan tombol Pesan (ORDER) & bayar via Xendit.
                 </p>
               </div>
             </div>

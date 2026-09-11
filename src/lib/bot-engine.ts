@@ -31,6 +31,7 @@ import {
   buildQuickNotesKeyboard,
 } from './telegram';
 import { createXenditInvoice } from './xendit';
+import { askGroqChatbot } from './groq';
 
 export async function generateInvoiceNo(): Promise<string> {
   await connectDB();
@@ -351,11 +352,34 @@ async function handleProcessOrderItems(
   }
 
   if (parsedItems.length === 0) {
+    // Coba tanyakan ke Groq AI Chatbot jika pelanggan bertanya seputar menu/resto
+    try {
+      const aiReply = await askGroqChatbot({
+        userMessage: text,
+        customerName: session.customerName,
+        configs,
+      });
+
+      if (aiReply) {
+        const availableMenus = await Menu.find({ isAvailable: true }).sort({ code: 1 });
+        let replyWithHelp = `${aiReply}\n\n`;
+        replyWithHelp += `─────────────────────────\n`;
+        replyWithHelp += `💡 _Silakan klik tombol menu di bawah jika ingin memesan, atau ketik *BATAL* untuk keluar:_`;
+
+        await sendMsg(phone, replyWithHelp, {
+          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
+        });
+        return { status: true, message: 'Groq AI Q&A during ordering' };
+      }
+    } catch (e: any) {
+      console.error('[BotEngine] Groq AI Q&A error during ordering:', e.message);
+    }
+
     let msg = "⚠️ Maaf kak, kami belum bisa mengenali format pesanan tersebut.\n\n";
     msg += "💡 *Contoh format yang benar:*\n";
     msg += "• *M1 2, D1 1* (2 Ayam Geprek, 1 Kopi Aren)\n";
     msg += "• *P1 1, S1 2*\n\n";
-    msg += "Ketik *MENU* untuk melihat daftar kode menu, atau ketik *BATAL* untuk keluar.";
+    msg += "Atau cukup **klik tombol menu** di bawah ini, atau ketik *BATAL* untuk keluar.";
     await sendMsg(phone, msg);
     return { status: true, message: 'Unrecognized items' };
   }
@@ -996,6 +1020,25 @@ export async function processInboundWebhook(
     return { ...res, replies };
   }
 
+  // Direct AI Question: e.g. "tanya makanan apa yang rekomendasi?" or "ai es tehnya manis gak?"
+  const aiQueryMatch = text.match(/^(tanya|ask|ai|\/tanya|\/ai)\s+(.+)$/i);
+  if (aiQueryMatch) {
+    const userQuestion = aiQueryMatch[2].trim();
+    try {
+      const aiReply = await askGroqChatbot({
+        userMessage: userQuestion,
+        customerName: data.pushName,
+        configs,
+      });
+      if (aiReply) {
+        await sendMsg(phone, aiReply);
+        return { status: true, message: 'Groq AI response sent', replies };
+      }
+    } catch (err: any) {
+      console.error('[BotEngine] Direct AI error:', err.message);
+    }
+  }
+
   // Flow State Machine
   switch (currentState) {
     case 'IDLE':
@@ -1013,6 +1056,26 @@ export async function processInboundWebhook(
 
         await sendMsg(phone, guide, { replyMarkup: buildMenuKeyboard(availableMenus, 0) });
         return { status: true, message: 'Ordering guide sent with menu keyboard', replies };
+      }
+
+      // Deteksi jika pesan adalah pertanyaan/pernyataan (bukan salam pembuka sederhana)
+      const isSimpleGreeting = /^(halo|hai|hi|hei|p|ping|tes|test|selamat\s+(pagi|siang|sore|malam)|mulai|start|\/start|assalamualaikum|kulonuwun)$/i.test(text.trim());
+
+      if (!isSimpleGreeting && text.trim().length > 1) {
+        try {
+          const aiReply = await askGroqChatbot({
+            userMessage: text,
+            customerName: data.pushName,
+            configs,
+          });
+
+          if (aiReply) {
+            await sendMsg(phone, aiReply);
+            return { status: true, message: 'Groq AI Q&A sent in IDLE', replies };
+          }
+        } catch (err: any) {
+          console.error('[BotEngine] Groq AI Q&A error in IDLE:', err.message);
+        }
       }
 
       // Default Welcome Message
