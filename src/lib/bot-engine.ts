@@ -835,7 +835,7 @@ export async function processInboundWebhook(
     return { status: true, message: 'Session reset', replies };
   }
 
-  if (cmdLower === '1' || cmdLower === 'menu' || cmdLower === 'katalog' || cmdLower === 'daftar menu' || cmdLower === 'pricelist') {
+  if ((currentState === 'IDLE' && cmdLower === '1') || cmdLower === 'menu' || cmdLower === 'katalog' || cmdLower === 'daftar menu' || cmdLower === 'pricelist') {
     session.state = 'IDLE';
     session.tempData = {};
     await session.save();
@@ -851,7 +851,7 @@ export async function processInboundWebhook(
     return { status: true, message: 'Menu catalog sent', replies };
   }
 
-  if (cmdLower === '4' || cmdLower === 'info' || cmdLower === 'lokasi' || cmdLower === 'alamat' || cmdLower === 'jam' || cmdLower === 'rekening' || cmdLower === 'qris') {
+  if ((currentState === 'IDLE' && cmdLower === '4') || cmdLower === 'info' || cmdLower === 'lokasi' || cmdLower === 'alamat' || cmdLower === 'jam' || cmdLower === 'rekening' || cmdLower === 'qris') {
     let infoMsg = `ℹ️ *INFORMASI ${storeName}*\n`;
     infoMsg += `═══════════════════════\n`;
     infoMsg += `📍 *Alamat:* ${storeAddr}\n`;
@@ -866,7 +866,7 @@ export async function processInboundWebhook(
     return { status: true, message: 'Info sent', replies };
   }
 
-  if (cmdLower === '3' || cmdLower.startsWith('status') || cmdLower.startsWith('cek')) {
+  if ((currentState === 'IDLE' && cmdLower === '3') || (cmdLower === 'status' || cmdLower === 'cek status' || /(ORD-[\d-]+)/i.test(text))) {
     await handleCheckOrderStatus(phone, text, configs, sendMsg);
     return { status: true, message: 'Status checked', replies };
   }
