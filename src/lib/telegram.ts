@@ -78,7 +78,13 @@ export function makeTelegramPaymentKeyboard(paymentUrl: string) {
 export function buildDynamicMainMenuKeyboard(activeOrder?: any) {
   const keyboard: any[][] = [];
 
-  if (activeOrder && activeOrder.paymentStatus === 'unpaid') {
+  const isValidActive =
+    activeOrder &&
+    activeOrder.orderStatus !== 'cancelled' &&
+    activeOrder.orderStatus !== 'delivered' &&
+    (activeOrder.grandTotal > 0 || activeOrder.totalAmount > 0);
+
+  if (isValidActive && activeOrder.paymentStatus === 'unpaid') {
     keyboard.push([
       { text: `💳 Bayar #${activeOrder.invoiceNo}` },
       { text: '📋 Cek Status' },
@@ -88,10 +94,10 @@ export function buildDynamicMainMenuKeyboard(activeOrder?: any) {
       { text: '📝 Pesan (ORDER)' },
     ]);
     keyboard.push([
-      { text: 'ℹ️ Info Resto' },
+      { text: `❌ Batalkan #${activeOrder.invoiceNo}` },
       { text: '👨‍💼 Bantuan Admin' },
     ]);
-  } else if (activeOrder && (activeOrder.orderStatus === 'cooking' || activeOrder.orderStatus === 'confirmed')) {
+  } else if (isValidActive && (activeOrder.orderStatus === 'cooking' || activeOrder.orderStatus === 'confirmed')) {
     keyboard.push([
       { text: `🍳 Status Dapur #${activeOrder.invoiceNo}` },
       { text: '📝 Pesan Lagi' },
@@ -102,7 +108,7 @@ export function buildDynamicMainMenuKeyboard(activeOrder?: any) {
     ]);
     keyboard.push([
       { text: '👨‍💼 Bantuan Admin' },
-      { text: '❌ Batal' },
+      { text: '📋 Cek Status' },
     ]);
   } else {
     return TELEGRAM_MAIN_KEYBOARD;

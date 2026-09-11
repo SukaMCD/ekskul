@@ -729,13 +729,13 @@ export async function processInboundWebhook(
         else if (opts?.keyboard === 'confirm') replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
         else if (opts?.keyboard === 'cancel') replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
         else if (opts?.keyboard === 'none') replyMarkup = undefined;
-        else {
           const activeOrder = await Order.findOne({
             customerPhone: targetPhone,
             orderStatus: { $in: ['pending', 'confirmed', 'cooking'] },
+            grandTotal: { $gt: 0 },
+            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
           }).sort({ createdAt: -1 });
           replyMarkup = buildDynamicMainMenuKeyboard(activeOrder);
-        }
       }
 
       await sendTelegramMessage(targetPhone, msg, configs, { reply_markup: replyMarkup });
@@ -984,6 +984,105 @@ export async function processInboundWebhook(
     infoMsg += `Ketik *MENU* untuk melihat menu, atau *ORDER* untuk pesan sekarang!`;
     await sendMsg(phone, infoMsg);
     return { status: true, message: 'Info sent', replies };
+  }
+
+  // Dynamic Button: Bayar Pesanan Pending
+  const payBtnMatch = text.match(/(?:💳\s*)?bayar\s*(?:#)?(ORD-[\d-]+)?/i);
+  if (payBtnMatch) {
+    const invNo = payBtnMatch[1];
+    const query: any = {
+      customerPhone: phone,
+      orderStatus: { $in: ['pending', 'confirmed'] },
+      paymentStatus: 'unpaid',
+      grandTotal: { $gt: 0 },
+    };
+    if (invNo) query.invoiceNo = invNo;
+    const targetOrder = await Order.findOne(query).sort({ createdAt: -1 });
+
+    if (targetOrder) {
+      let billMsg = `💳 *TAGIHAN PESANAN #${targetOrder.invoiceNo}*\n`;
+      billMsg += `═════════════════════════\n`;
+      for (const it of targetOrder.items) {
+        billMsg += `• ${it.menuName} (${it.quantity}x @ Rp ${Number(it.price).toLocaleString('id-ID')})\n`;
+      }
+      if (targetOrder.deliveryFee > 0) {
+        billMsg += `• Ongkos Kirim: Rp ${Number(targetOrder.deliveryFee).toLocaleString('id-ID')}\n`;
+      }
+      billMsg += `─────────────────────────\n`;
+      billMsg += `💰 *Total: Rp ${Number(targetOrder.grandTotal).toLocaleString('id-ID')}*\n\n`;
+
+      if (targetOrder.xenditInvoiceUrl) {
+        billMsg += `Silakan klik tombol di bawah untuk membayar via **QRIS, VA Bank, atau E-Wallet**:`;
+        await sendTelegramMessage(phone, billMsg, configs, {
+          reply_markup: makeTelegramPaymentKeyboard(targetOrder.xenditInvoiceUrl),
+        });
+        return { status: true, message: 'Existing payment link sent', replies };
+      } else {
+        const xenditSecret = configs.xendit_secret_key || process.env.XENDIT_SECRET_KEY || '';
+        const xenditRes = await createXenditInvoice({
+          externalId: targetOrder.invoiceNo,
+          amount: targetOrder.grandTotal,
+          description: `Pesanan #${targetOrder.invoiceNo} - ${targetOrder.customerName}`,
+          customerName: targetOrder.customerName || 'Pelanggan',
+          customerPhone: phone,
+          items: targetOrder.items.map((it: any) => ({
+            name: it.menuName,
+            quantity: it.quantity,
+            price: it.price,
+          })),
+          secretKey: xenditSecret,
+        });
+
+        if (xenditRes.success && xenditRes.data) {
+          targetOrder.xenditInvoiceId = xenditRes.data.id;
+          targetOrder.xenditInvoiceUrl = xenditRes.data.invoice_url;
+          await targetOrder.save();
+
+          billMsg += `Silakan klik tombol di bawah untuk membayar via **QRIS, VA Bank, atau E-Wallet**:`;
+          await sendTelegramMessage(phone, billMsg, configs, {
+            reply_markup: makeTelegramPaymentKeyboard(xenditRes.data.invoice_url),
+          });
+          return { status: true, message: 'New payment link sent', replies };
+        } else {
+          billMsg += `_Silakan transfer ke rekening berikut:_\n\n${bankInfo}`;
+          await sendMsg(phone, billMsg);
+          return { status: true, message: 'Manual bank info sent', replies };
+        }
+      }
+    }
+  }
+
+  // Dynamic Button: Batalkan Pesanan Tertentu
+  const cancelSpecificMatch = text.match(/(?:❌\s*)?batal(?:kan)?\s*(?:#)?(ORD-[\d-]+)/i);
+  if (cancelSpecificMatch) {
+    const invNo = cancelSpecificMatch[1];
+    const targetOrder = await Order.findOne({ invoiceNo: invNo, customerPhone: phone });
+    if (targetOrder) {
+      targetOrder.orderStatus = 'cancelled';
+      await targetOrder.save();
+      await sendMsg(phone, `✅ Pesanan *#${invNo}* telah berhasil dibatalkan.\n\nTombol tagihan telah dibersihkan. Silakan klik *Lihat Menu* atau *Pesan (ORDER)* untuk membuat pesanan baru.`);
+      return { status: true, message: 'Specific order cancelled', replies };
+    }
+  }
+
+  // Dynamic Button: Status Dapur
+  const kitchenMatch = text.match(/(?:🍳\s*)?status\s*dapur/i);
+  if (kitchenMatch) {
+    const activeOrder = await Order.findOne({
+      customerPhone: phone,
+      orderStatus: { $in: ['cooking', 'confirmed'] },
+      grandTotal: { $gt: 0 },
+    }).sort({ createdAt: -1 });
+
+    if (activeOrder) {
+      let msg = `🍳 *STATUS DAPUR: #${activeOrder.invoiceNo}*\n`;
+      msg += `═════════════════════════\n`;
+      msg += `Pesanan kakak saat ini sedang **dipersiapkan & dimasak** oleh tim dapur kami 👨‍🍳\n\n`;
+      msg += `Estimasi selesai: Sekitar 10-20 menit.\n`;
+      msg += `Kami akan langsung mengirimkan notifikasi saat pesanan siap disajikan / diantar!`;
+      await sendMsg(phone, msg);
+      return { status: true, message: 'Kitchen status sent', replies };
+    }
   }
 
   if ((currentState === 'IDLE' && cmdLower === '3') || (cmdLower === 'status' || cmdLower === 'cek status' || /(ORD-[\d-]+)/i.test(text))) {
