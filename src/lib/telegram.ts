@@ -73,6 +73,162 @@ export function makeTelegramPaymentKeyboard(paymentUrl: string) {
 }
 
 /**
+ * Keyboard Menu Utama Dinamis sesuai status pesanan aktif pelanggan
+ */
+export function buildDynamicMainMenuKeyboard(activeOrder?: any) {
+  const keyboard: any[][] = [];
+
+  if (activeOrder && activeOrder.paymentStatus === 'unpaid') {
+    keyboard.push([
+      { text: `💳 Bayar #${activeOrder.invoiceNo}` },
+      { text: '📋 Cek Status' },
+    ]);
+    keyboard.push([
+      { text: '🍽️ Lihat Menu' },
+      { text: '📝 Pesan (ORDER)' },
+    ]);
+    keyboard.push([
+      { text: 'ℹ️ Info Resto' },
+      { text: '👨‍💼 Bantuan Admin' },
+    ]);
+  } else if (activeOrder && (activeOrder.orderStatus === 'cooking' || activeOrder.orderStatus === 'confirmed')) {
+    keyboard.push([
+      { text: `🍳 Status Dapur #${activeOrder.invoiceNo}` },
+      { text: '📝 Pesan Lagi' },
+    ]);
+    keyboard.push([
+      { text: '🍽️ Lihat Menu' },
+      { text: 'ℹ️ Info Resto' },
+    ]);
+    keyboard.push([
+      { text: '👨‍💼 Bantuan Admin' },
+      { text: '❌ Batal' },
+    ]);
+  } else {
+    return TELEGRAM_MAIN_KEYBOARD;
+  }
+
+  return {
+    keyboard,
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+}
+
+/**
+ * Keyboard Dinamis Daftar Menu dari database
+ */
+export function buildMenuKeyboard(menus: any[], cartCount: number = 0) {
+  const keyboard: any[][] = [];
+
+  // Tampilkan tombol menu berpasangan (2 kolom) atau 1 kolom jika nama panjang
+  for (let i = 0; i < menus.length; i += 2) {
+    const row: any[] = [];
+    const m1 = menus[i];
+    row.push({ text: `🍽️ ${m1.code}. ${m1.name}` });
+
+    if (i + 1 < menus.length) {
+      const m2 = menus[i + 1];
+      row.push({ text: `🍽️ ${m2.code}. ${m2.name}` });
+    }
+    keyboard.push(row);
+  }
+
+  // Tombol aksi di bawah
+  if (cartCount > 0) {
+    keyboard.push([
+      { text: `🛒 Keranjang (${cartCount} item)` },
+      { text: '✅ Selesai & Lanjut' },
+    ]);
+  }
+
+  keyboard.push([
+    { text: '📋 Katalog Lengkap' },
+    { text: '❌ Batal' },
+  ]);
+
+  return {
+    keyboard,
+    resize_keyboard: true,
+    one_time_keyboard: false,
+  };
+}
+
+/**
+ * Keyboard Pilihan Jumlah Porsi
+ */
+export function buildQuantityKeyboard(menuName: string) {
+  return {
+    keyboard: [
+      [{ text: '1 Porsi' }, { text: '2 Porsi' }, { text: '3 Porsi' }],
+      [{ text: '4 Porsi' }, { text: '5 Porsi' }, { text: '10 Porsi' }],
+      [{ text: '🛒 Lihat Keranjang' }, { text: '⬅️ Pilih Menu Lain' }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+/**
+ * Keyboard Tindakan Keranjang Belanja
+ */
+export function buildCartKeyboard() {
+  return {
+    keyboard: [
+      [{ text: '➕ Tambah Menu Lain' }, { text: '✅ Selesai & Lanjut' }],
+      [{ text: '🗑️ Kosongkan Keranjang' }, { text: '❌ Batal' }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+/**
+ * Keyboard Pilihan Nomor Meja (Khusus Dine-In)
+ */
+export function buildTableKeyboard() {
+  return {
+    keyboard: [
+      [{ text: 'Meja 01' }, { text: 'Meja 02' }, { text: 'Meja 03' }],
+      [{ text: 'Meja 04' }, { text: 'Meja 05' }, { text: 'Meja 06' }],
+      [{ text: 'Meja 07' }, { text: 'Meja 08' }, { text: '❌ Batal' }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+/**
+ * Keyboard Kirim Lokasi GPS Otomatis (Khusus Delivery)
+ */
+export function buildDeliveryLocationKeyboard() {
+  return {
+    keyboard: [
+      [{ text: '📍 Kirim Lokasi GPS Saya', request_location: true }],
+      [{ text: 'Ketik Alamat Manual' }, { text: '❌ Batal' }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+/**
+ * Keyboard Pilihan Catatan Cepat (Quick Notes)
+ */
+export function buildQuickNotesKeyboard() {
+  return {
+    keyboard: [
+      [{ text: '- Tanpa Catatan (Standar)' }],
+      [{ text: '🌶️ Pedas Banget' }, { text: '🚫 Tidak Pedas' }],
+      [{ text: '🧊 Es Sedikit' }, { text: '🥡 Sambal Dipisah' }],
+      [{ text: '❌ Batal' }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+/**
  * Mengatur menu command biru [Menu] di sebelah kiri kolom ketik chat Telegram
  */
 export async function setTelegramBotCommands(
@@ -455,6 +611,19 @@ export async function parseTelegramUpdate(update: any, tokenOverride?: string): 
     text = msg.text;
   } else if (typeof msg?.caption === 'string') {
     text = msg.caption;
+  }
+
+  // Handle Telegram GPS Location (request_location button)
+  if (msg?.location) {
+    const lat = msg.location.latitude;
+    const lon = msg.location.longitude;
+    const gmapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
+    text = `📍 Lokasi GPS: ${gmapsUrl}`;
+  }
+
+  // Handle Telegram Contact Share (request_contact button)
+  if (msg?.contact?.phone_number) {
+    text = msg.contact.phone_number;
   }
 
   // Handle Telegram Photos (bukti transfer / gambar)

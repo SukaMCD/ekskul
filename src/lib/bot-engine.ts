@@ -22,6 +22,13 @@ import {
   TELEGRAM_CONFIRM_KEYBOARD,
   TELEGRAM_CANCEL_KEYBOARD,
   makeTelegramPaymentKeyboard,
+  buildDynamicMainMenuKeyboard,
+  buildMenuKeyboard,
+  buildQuantityKeyboard,
+  buildCartKeyboard,
+  buildTableKeyboard,
+  buildDeliveryLocationKeyboard,
+  buildQuickNotesKeyboard,
 } from './telegram';
 import { createXenditInvoice } from './xendit';
 
@@ -206,6 +213,76 @@ async function handleCheckOrderStatus(
   }
 
   await sendMsg(phone, msg);
+}
+
+async function handleAddSingleItemToCart(
+  phone: string,
+  menu: any,
+  qty: number,
+  tempData: any,
+  session: any,
+  configs: BotConfigMap,
+  sendMsg: SendFn,
+  availableMenus: any[],
+  replies: string[]
+): Promise<{ status: boolean; message: string; replies: string[] }> {
+  // Cek ketersediaan stok
+  const currentStock = menu.stock !== undefined ? menu.stock : 50;
+  if (menu.trackStock && currentStock <= 0) {
+    session.state = 'ORDERING_ITEMS';
+    session.markModified('tempData');
+    await session.save();
+    await sendMsg(
+      phone,
+      `⚠️ Maaf kak, menu *${menu.name}* saat ini sedang habis (Stok: 0). Silakan pilih menu lainnya:`,
+      { replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length) }
+    );
+    return { status: true, message: 'Out of stock', replies };
+  }
+
+  if (menu.trackStock && qty > currentStock) {
+    await sendMsg(
+      phone,
+      `⚠️ Maaf kak, stok untuk *${menu.name}* hanya tersisa *${currentStock}* porsi. Silakan klik jumlah porsi yang sesuai:`,
+      { replyMarkup: buildQuantityKeyboard(menu.name) }
+    );
+    return { status: true, message: 'Stock exceeded', replies };
+  }
+
+  if (!tempData.items) tempData.items = [];
+  const existingIdx = tempData.items.findIndex((it: any) => it.menuCode === menu.code);
+  if (existingIdx >= 0) {
+    tempData.items[existingIdx].quantity += qty;
+    tempData.items[existingIdx].subtotal = tempData.items[existingIdx].quantity * Number(menu.price);
+  } else {
+    tempData.items.push({
+      menuId: menu._id,
+      menuCode: menu.code,
+      menuName: menu.name,
+      price: Number(menu.price),
+      quantity: qty,
+      subtotal: Number(menu.price) * qty,
+      notes: '',
+    });
+  }
+
+  tempData.total_items = tempData.items.reduce((sum: number, it: any) => sum + Number(it.quantity), 0);
+  tempData.subtotal = tempData.items.reduce((sum: number, it: any) => sum + Number(it.subtotal), 0);
+  delete tempData.pending_menu_code;
+
+  session.state = 'ORDERING_ITEMS';
+  session.tempData = tempData;
+  session.markModified('tempData');
+  await session.save();
+
+  let confirmMsg = `✅ *${qty}x ${menu.name}* dimasukkan ke keranjang!\n`;
+  confirmMsg += `🛒 Total Keranjang: *${tempData.total_items} item* (Rp ${Number(tempData.subtotal).toLocaleString('id-ID')})\n\n`;
+  confirmMsg += `Silakan klik menu lain di bawah untuk menambah, atau klik **✅ Selesai & Lanjut** jika sudah selesai:`;
+
+  await sendMsg(phone, confirmMsg, {
+    replyMarkup: buildMenuKeyboard(availableMenus, tempData.total_items),
+  });
+  return { status: true, message: 'Item added to cart', replies };
 }
 
 async function handleProcessOrderItems(
@@ -628,7 +705,13 @@ export async function processInboundWebhook(
         else if (opts?.keyboard === 'confirm') replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
         else if (opts?.keyboard === 'cancel') replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
         else if (opts?.keyboard === 'none') replyMarkup = undefined;
-        else replyMarkup = TELEGRAM_MAIN_KEYBOARD;
+        else {
+          const activeOrder = await Order.findOne({
+            customerPhone: targetPhone,
+            orderStatus: { $in: ['pending', 'confirmed', 'cooking'] },
+          }).sort({ createdAt: -1 });
+          replyMarkup = buildDynamicMainMenuKeyboard(activeOrder);
+        }
       }
 
       await sendTelegramMessage(targetPhone, msg, configs, { reply_markup: replyMarkup });
@@ -917,20 +1000,19 @@ export async function processInboundWebhook(
   switch (currentState) {
     case 'IDLE':
       if (cmdLower === '2' || cmdLower === 'order' || cmdLower === 'pesan' || cmdLower === 'beli') {
+        const availableMenus = await Menu.find({ isAvailable: true }).sort({ code: 1 });
         session.state = 'ORDERING_ITEMS';
-        session.tempData = {};
+        session.tempData = { items: [], total_items: 0, subtotal: 0 };
+        session.markModified('tempData');
         await session.save();
 
-        let guide = "📝 *FORMAT PEMESANAN MAKANAN/MINUMAN*\n";
+        let guide = "📝 *PILIH MENU MAKANAN / MINUMAN*\n";
         guide += "═════════════════════════\n";
-        guide += "Silakan ketik kode menu dan jumlah pesanan kakak.\n\n";
-        guide += "💡 *Contoh penulisan:*\n";
-        guide += "• *M1 2, D1 1* (2 Ayam Geprek + 1 Kopi Aren)\n";
-        guide += "• *P1 1, S1 1, D2 2*\n\n";
-        guide += "_Belum hafal kodenya? Ketik *MENU* untuk lihat daftar menu._\n";
+        guide += "Silakan **klik tombol menu** di bawah untuk memilih porsi, atau ketik kode menu (contoh: *M1 2*).\n\n";
         guide += "_Ketik *BATAL* kapan saja jika ingin membatalkan._";
-        await sendMsg(phone, guide);
-        return { status: true, message: 'Ordering guide sent', replies };
+
+        await sendMsg(phone, guide, { replyMarkup: buildMenuKeyboard(availableMenus, 0) });
+        return { status: true, message: 'Ordering guide sent with menu keyboard', replies };
       }
 
       // Default Welcome Message
@@ -939,11 +1021,180 @@ export async function processInboundWebhook(
       await sendMsg(phone, welcomeMsg);
       return { status: true, message: 'Welcome sent', replies };
 
-    case 'ORDERING_ITEMS':
+    case 'ORDERING_ITEMS': {
+      const availableMenus = await Menu.find({ isAvailable: true }).sort({ code: 1 });
+      const cleanLower = text.toLowerCase().trim();
+
+      // 1. Cek jika user klik "✅ Selesai & Lanjut"
+      if (cleanLower.includes('selesai') || cleanLower.includes('lanjut') || cleanLower === 'deal') {
+        const currentItems = tempData.items || [];
+        if (currentItems.length === 0) {
+          await sendMsg(
+            phone,
+            "⚠️ Keranjang belanja kakak masih kosong. Silakan klik menu di bawah terlebih dahulu ya kak:",
+            { replyMarkup: buildMenuKeyboard(availableMenus, 0) }
+          );
+          return { status: true, message: 'Cart empty', replies };
+        }
+
+        session.state = 'ORDERING_TYPE';
+        session.markModified('tempData');
+        await session.save();
+
+        let reply = "✅ *Daftar Item Pesanan Kakak:*\n";
+        for (const it of currentItems) {
+          reply += `• ${it.menuName} (${it.quantity}x @ Rp ${Number(it.price).toLocaleString('id-ID')}) = *Rp ${Number(it.subtotal).toLocaleString('id-ID')}*\n`;
+        }
+        reply += `Subtotal: *Rp ${Number(tempData.subtotal).toLocaleString('id-ID')}*\n\n`;
+        reply += "═══════════════════════\n";
+        reply += "Selanjutnya, pesanan ini untuk:\n";
+        reply += "1️⃣ *Makan di Tempat (Dine-In)*\n";
+        reply += "2️⃣ *Bungkus (Takeaway)*\n";
+        reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
+        reply += "Silakan klik salah satu tombol di bawah:";
+
+        await sendMsg(phone, reply, { keyboard: 'order_type' });
+        return { status: true, message: 'Proceeded to order type', replies };
+      }
+
+      // 2. Cek jika user klik "🛒 Keranjang"
+      if (cleanLower.includes('keranjang') || cleanLower.includes('cart')) {
+        const currentItems = tempData.items || [];
+        if (currentItems.length === 0) {
+          await sendMsg(
+            phone,
+            "🛒 *Keranjang Belanja:* Masih Kosong\n\nSilakan klik salah satu tombol menu di bawah untuk mulai memesan:",
+            { replyMarkup: buildMenuKeyboard(availableMenus, 0) }
+          );
+          return { status: true, message: 'Cart empty', replies };
+        }
+
+        let cartMsg = "🛒 *RINCIAN KERANJANG BELANJA:*\n";
+        cartMsg += "═════════════════════════\n";
+        for (const it of currentItems) {
+          cartMsg += `• ${it.menuName}\n  ${it.quantity}x @ Rp ${Number(it.price).toLocaleString('id-ID')} = *Rp ${Number(it.subtotal).toLocaleString('id-ID')}*\n`;
+        }
+        cartMsg += "─────────────────────────\n";
+        cartMsg += `💰 *Subtotal: Rp ${Number(tempData.subtotal).toLocaleString('id-ID')}* (${tempData.total_items} item)\n\n`;
+        cartMsg += "Klik *Tambah Menu Lain* untuk menambah menu, atau *✅ Selesai & Lanjut* untuk proses pesanan:";
+
+        await sendMsg(phone, cartMsg, { replyMarkup: buildCartKeyboard() });
+        return { status: true, message: 'Cart displayed', replies };
+      }
+
+      // 3. Cek jika user klik "🗑️ Kosongkan Keranjang"
+      if (cleanLower.includes('kosongkan')) {
+        tempData.items = [];
+        tempData.subtotal = 0;
+        tempData.total_items = 0;
+        session.tempData = tempData;
+        session.markModified('tempData');
+        await session.save();
+
+        await sendMsg(
+          phone,
+          "🗑️ Keranjang telah dikosongkan.\nSilakan klik menu di bawah untuk memilih pesanan baru:",
+          { replyMarkup: buildMenuKeyboard(availableMenus, 0) }
+        );
+        return { status: true, message: 'Cart cleared', replies };
+      }
+
+      // 4. Cek jika user klik "📋 Katalog Lengkap"
+      if (cleanLower.includes('katalog lengkap')) {
+        const catalog = await getFormattedMenuForBot();
+        await sendMsg(phone, catalog, {
+          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
+        });
+        return { status: true, message: 'Full catalog sent in ordering', replies };
+      }
+
+      // 5. Cek jika user klik tombol menu (misal: "🍽️ M1. Ayam Geprek..." atau ketik "M1")
+      const cleanTextNoEmoji = text.replace(/🍽️/g, '').trim();
+      const matchedMenu = availableMenus.find((m) => {
+        const codeUpper = m.code.toUpperCase();
+        return (
+          cleanTextNoEmoji.toUpperCase().startsWith(codeUpper + '.') ||
+          cleanTextNoEmoji.toUpperCase().startsWith(codeUpper + ' ') ||
+          cleanTextNoEmoji.toUpperCase() === codeUpper ||
+          cleanTextNoEmoji.toLowerCase() === m.name.toLowerCase() ||
+          cleanTextNoEmoji.toLowerCase().includes(m.name.toLowerCase())
+        );
+      });
+
+      if (matchedMenu && !text.includes(',') && !text.includes(';') && !/\d+\s*,\s*/.test(text)) {
+        const singleQtyMatch = cleanTextNoEmoji.match(new RegExp(`^${matchedMenu.code}\\s*[:xX]?\s*(\\d+)$`, 'i'));
+        if (singleQtyMatch && singleQtyMatch[1]) {
+          const qty = parseInt(singleQtyMatch[1], 10);
+          return handleAddSingleItemToCart(phone, matchedMenu, qty, tempData, session, configs, sendMsg, availableMenus, replies);
+        }
+
+        tempData.pending_menu_code = matchedMenu.code;
+        session.state = 'ORDERING_QTY';
+        session.tempData = tempData;
+        session.markModified('tempData');
+        await session.save();
+
+        let porsiMsg = `🍽️ *${matchedMenu.name}* (${matchedMenu.code})\n`;
+        porsiMsg += `💰 Harga: *Rp ${Number(matchedMenu.price).toLocaleString('id-ID')}* / porsi\n`;
+        if (matchedMenu.description) {
+          porsiMsg += `_${matchedMenu.description}_\n`;
+        }
+        porsiMsg += `\nBerapa porsi yang ingin kakak pesan?\nSilakan **klik tombol jumlah porsi** di bawah:`;
+
+        await sendMsg(phone, porsiMsg, { replyMarkup: buildQuantityKeyboard(matchedMenu.name) });
+        return { status: true, message: 'Quantity keyboard sent', replies };
+      }
+
+      // 6. Fallback ke parser multi-item (misal: "M1 2, D1 1")
       const itemsRes = await handleProcessOrderItems(phone, text, tempData, session, configs, sendMsg);
       return { ...itemsRes, replies };
+    }
 
-    case 'ORDERING_TYPE':
+    case 'ORDERING_QTY': {
+      const availableMenus = await Menu.find({ isAvailable: true }).sort({ code: 1 });
+      const cleanLower = text.toLowerCase().trim();
+
+      if (cleanLower.includes('pilih menu lain') || cleanLower.includes('kembali') || cleanLower.includes('ganti menu')) {
+        session.state = 'ORDERING_ITEMS';
+        session.markModified('tempData');
+        await session.save();
+        await sendMsg(phone, "Silakan klik menu yang ingin dipesan:", {
+          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
+        });
+        return { status: true, message: 'Back to menu list from qty', replies };
+      }
+
+      if (cleanLower.includes('lihat keranjang') || cleanLower.includes('keranjang')) {
+        let cartMsg = "🛒 *RINCIAN KERANJANG BELANJA:*\n";
+        cartMsg += "═════════════════════════\n";
+        for (const it of (tempData.items || [])) {
+          cartMsg += `• ${it.menuName} (${it.quantity}x @ Rp ${Number(it.price).toLocaleString('id-ID')}) = *Rp ${Number(it.subtotal).toLocaleString('id-ID')}*\n`;
+        }
+        cartMsg += `Subtotal: *Rp ${Number(tempData.subtotal || 0).toLocaleString('id-ID')}*\n`;
+        await sendMsg(phone, cartMsg, { replyMarkup: buildCartKeyboard() });
+        return { status: true, message: 'Cart shown from qty', replies };
+      }
+
+      const qtyMatch = text.match(/(\d+)/);
+      const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+
+      const menuCode = tempData.pending_menu_code;
+      const menu = availableMenus.find((m) => m.code.toUpperCase() === (menuCode || '').toUpperCase());
+
+      if (!menu) {
+        session.state = 'ORDERING_ITEMS';
+        session.markModified('tempData');
+        await session.save();
+        await sendMsg(phone, "⚠️ Silakan pilih menu di bawah ini:", {
+          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
+        });
+        return { status: true, message: 'Menu not found in qty step', replies };
+      }
+
+      return handleAddSingleItemToCart(phone, menu, qty, tempData, session, configs, sendMsg, availableMenus, replies);
+    }
+
+    case 'ORDERING_TYPE': {
       const typeMap: Record<string, 'dine_in' | 'takeaway' | 'delivery'> = {
         '1': 'dine_in',
         'dine in': 'dine_in',
@@ -963,7 +1214,8 @@ export async function processInboundWebhook(
       if (!chosenType) {
         await sendMsg(
           phone,
-          `⚠️ Pilihan tidak valid. Silakan balas dengan angka:\n*1* untuk Makan di Tempat (Dine-In)\n*2* untuk Bungkus (Takeaway)\n*3* untuk Pesan Antar (Delivery)\n\n_(Atau ketik *BATAL* untuk membatalkan)_`
+          `⚠️ Pilihan tidak valid. Silakan klik salah satu pilihan di bawah:`,
+          { keyboard: 'order_type' }
         );
         return { status: true, message: 'Invalid order type selection', replies };
       }
@@ -976,37 +1228,56 @@ export async function processInboundWebhook(
       await session.save();
 
       if (chosenType === 'dine_in') {
-        await sendMsg(phone, `🍽️ *Makan di Tempat (Dine-In)*\n\nBoleh minta *Nama Pemesan & Nomor Meja* kakak?\nContoh: *Budi Santoso - Meja 05*`);
+        await sendMsg(
+          phone,
+          `🍽️ *Makan di Tempat (Dine-In)*\n\nSilakan **klik nomor meja kakak** di bawah ini:`,
+          { replyMarkup: buildTableKeyboard() }
+        );
       } else if (chosenType === 'takeaway') {
-        await sendMsg(phone, `🛍️ *Bungkus Bawa Pulang (Takeaway)*\n\nBoleh minta *Nama Lengkap Pemesan* kakak?\nContoh: *Rina Rahayu*`);
+        await sendMsg(
+          phone,
+          `🛍️ *Bungkus Bawa Pulang (Takeaway)*\n\nBoleh minta *Nama Lengkap Pemesan* kakak? (Contoh: *${data.pushName || 'Rina'}*)`
+        );
       } else {
-        await sendMsg(phone, `🛵 *Pesan Antar (Delivery)*\n\nBoleh minta *Nama & Alamat Lengkap Pengiriman* kakak beserta patokannya?\nContoh: *Andi - Jl. Mawar No. 12, RT 02/03 (Pagar Hitam), Surabaya*`);
+        await sendMsg(
+          phone,
+          `🛵 *Pesan Antar (Delivery)*\n\nSilakan klik tombol **📍 Kirim Lokasi GPS Saya** di bawah untuk membagikan alamat otomatis, atau ketik alamat manual:`,
+          { replyMarkup: buildDeliveryLocationKeyboard() }
+        );
       }
       return { status: true, message: 'Order type chosen', replies };
+    }
 
-    case 'ORDERING_NAME_ADDRESS':
+    case 'ORDERING_NAME_ADDRESS': {
       const nameInput = text.trim();
-      if (nameInput.length < 2) {
-        await sendMsg(phone, `⚠️ Mohon masukkan nama / alamat yang jelas ya kak.`);
-        return { status: true, message: 'Invalid address input', replies };
-      }
-
       const oType = tempData.order_type || 'dine_in';
+
       if (oType === 'dine_in') {
-        const parts = nameInput.split('-');
-        tempData.customer_name = parts[0].trim();
-        tempData.delivery_address = parts[1] ? parts[1].trim() : 'Makan di Tempat (Meja Belum Ditentukan)';
+        if (/^meja\s*\d+/i.test(nameInput)) {
+          tempData.delivery_address = nameInput.toUpperCase();
+          tempData.customer_name = data.pushName || 'Pelanggan';
+        } else {
+          const parts = nameInput.split('-');
+          tempData.customer_name = parts[0].trim();
+          tempData.delivery_address = parts[1] ? parts[1].trim() : 'Makan di Tempat (Meja Belum Ditentukan)';
+        }
       } else if (oType === 'takeaway') {
         tempData.customer_name = nameInput;
         tempData.delivery_address = 'Takeaway / Ambil di Toko';
       } else {
-        const parts = nameInput.split('-');
-        if (parts.length >= 2) {
-          tempData.customer_name = parts[0].trim();
-          tempData.delivery_address = parts.slice(1).join('-').trim();
-        } else {
-          tempData.customer_name = `Pelanggan`;
+        // Delivery
+        if (nameInput.includes('maps.google.com') || nameInput.startsWith('📍')) {
           tempData.delivery_address = nameInput;
+          tempData.customer_name = data.pushName || 'Pelanggan';
+        } else {
+          const parts = nameInput.split('-');
+          if (parts.length >= 2) {
+            tempData.customer_name = parts[0].trim();
+            tempData.delivery_address = parts.slice(1).join('-').trim();
+          } else {
+            tempData.customer_name = data.pushName || 'Pelanggan';
+            tempData.delivery_address = nameInput;
+          }
         }
       }
 
@@ -1015,15 +1286,14 @@ export async function processInboundWebhook(
       session.markModified('tempData');
       await session.save();
 
-      await sendMsg(
-        phone,
-        `📝 Ada *catatan khusus* untuk pesanan ini?\n(Contoh: *Sambal dipisah, es sedikit, jangan pakai daun bawang*).\n\nKetik catatanmu, atau balas *-* (tanda strip) jika tidak ada.`
-      );
-      return { status: true, message: 'Name/address received', replies };
+      let notePrompt = `📝 Ada *catatan khusus* untuk pesanan ini?\n(Contoh: *Sambal dipisah, es sedikit, tanpa daun bawang*).\n\nSilakan **klik salah satu opsi catatan cepat** di bawah:`;
+      await sendMsg(phone, notePrompt, { replyMarkup: buildQuickNotesKeyboard() });
+      return { status: true, message: 'Name/address received, prompt notes', replies };
+    }
 
-    case 'ORDERING_NOTES':
+    case 'ORDERING_NOTES': {
       let notes = text.trim();
-      if (notes === '-' || ['tidak ada', 'gada', 'ga ada', 'tidak', 'no', 'strip'].includes(notes.toLowerCase())) {
+      if (notes === '-' || notes.includes('Tanpa Catatan') || ['tidak ada', 'gada', 'ga ada', 'tidak', 'no', 'strip'].includes(notes.toLowerCase())) {
         notes = '-';
       }
       tempData.notes = notes;
@@ -1071,11 +1341,11 @@ export async function processInboundWebhook(
       summary += `💰 *TOTAL BAYAR: Rp ${grandTotal.toLocaleString('id-ID')}*\n`;
       summary += "═════════════════════════\n\n";
       summary += "Apakah data pesanan di atas sudah benar?\n";
-      summary += "Ketik *YA* untuk memproses pesanan.\n";
-      summary += "Ketik *BATAL* untuk membatalkan.";
+      summary += "Silakan klik tombol **✅ YA, Buat Pesanan** di bawah untuk memproses pembayaran:";
 
       await sendMsg(phone, summary, { keyboard: 'confirm' });
       return { status: true, message: 'Summary sent', replies };
+    }
 
     case 'ORDERING_CONFIRM':
       if (['ya', 'oke', 'ok', 'benar', '1', 'siap', 'y', 'yes', 'deal'].includes(cmdLower)) {
@@ -1084,11 +1354,12 @@ export async function processInboundWebhook(
       } else if (['batal', 'tidak', 'gak', 'ga', '2', 'cancel', 'no'].includes(cmdLower)) {
         session.state = 'IDLE';
         session.tempData = {};
+        session.markModified('tempData');
         await session.save();
         await sendMsg(phone, `❌ Pesanan berhasil dibatalkan. Terima kasih!\n\nKetik *MENU* jika ingin melihat daftar menu kami kembali.`);
         return { status: true, message: 'Order cancelled by user', replies };
       } else {
-        await sendMsg(phone, `⚠️ Mohon balas *YA* jika pesanan sudah benar, atau *BATAL* untuk membatalkan.`);
+        await sendMsg(phone, `⚠️ Mohon klik **✅ YA, Buat Pesanan** jika sudah benar, atau **❌ Batal** untuk membatalkan.`, { keyboard: 'confirm' });
         return { status: true, message: 'Waiting valid confirm', replies };
       }
 
