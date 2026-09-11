@@ -4,6 +4,14 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Leafly Resto - AI Automation & Commerce Admin Portal',
   description: 'Leafly Resto - Automated Ordering Bot & F&B Management System',
+  icons: {
+    icon: [
+      { url: '/leafly-logo.png', type: 'image/png' },
+      { url: '/favicon.ico', sizes: 'any' },
+    ],
+    shortcut: '/leafly-logo.png',
+    apple: '/leafly-logo.png',
+  },
 };
 
 export default function RootLayout({
