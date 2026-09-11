@@ -11,7 +11,10 @@ export interface BotConfigMap {
   store_gmaps?: string;
   store_hours?: string;
   admin_phone?: string;
-  gateway_provider?: 'fonnte' | 'wablas' | string;
+  gateway_provider?: 'telegram' | 'fonnte' | 'wablas' | string;
+  telegram_bot_token?: string;
+  telegram_admin_chat_id?: string;
+  telegram_webhook_url?: string;
   fonnte_token?: string;
   wablas_url?: string;
   wablas_token?: string;
@@ -55,7 +58,9 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
     store_gmaps: 'https://maps.google.com/?q=-7.2575,112.7521',
     store_hours: 'Senin - Minggu: 10.00 - 22.00 WIB',
     admin_phone: '6281234567890',
-    gateway_provider: 'wablas',
+    gateway_provider: 'telegram',
+    telegram_bot_token: process.env.TELEGRAM_BOT_TOKEN || '',
+    telegram_admin_chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID || '',
     fonnte_token: process.env.FONNTE_TOKEN || 'KxciUKN8p3j5iUo3zaPT',
     wablas_url: 'https://sby.wablas.com',
     wablas_token: '',

@@ -7,18 +7,18 @@ export default function HomePage() {
       <div className="max-w-4xl w-full text-center space-y-8 z-10 py-12">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold shadow-xs">
           <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-          <span>Next.js 16 • MongoDB NoSQL • Wablas Enterprise Bot</span>
+          <span>Next.js 16 • MongoDB NoSQL • Telegram & WA Bot Commerce</span>
         </div>
 
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 leading-tight">
-          Automated WhatsApp Commerce <br />
+          Automated Bot Commerce <br />
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-600">
             For F&B & Modern Restaurants
           </span>
         </h1>
 
         <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          Platform enterprise otomasi transaksi pesanan, katalog menu interaktif, dan customer service cerdas via gateway WhatsApp resmi.
+          Platform enterprise otomasi transaksi pesanan, katalog menu interaktif, dan customer service cerdas via Telegram Bot resmi & WhatsApp gateway.
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-4 pt-2">

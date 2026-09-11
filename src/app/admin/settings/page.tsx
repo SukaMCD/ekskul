@@ -20,10 +20,14 @@ import {
   Plus,
   Play,
   RotateCcw,
+  Globe,
+  ExternalLink,
+  Info,
+  Check,
 } from 'lucide-react';
 
 export default function AdminSettingsPage() {
-  const [activeTab, setActiveTab] = useState<'general' | 'wablas' | 'templates' | 'whitelist' | 'simulator'>('simulator');
+  const [activeTab, setActiveTab] = useState<'general' | 'gateway' | 'wablas' | 'templates' | 'whitelist' | 'simulator'>('simulator');
   const [configs, setConfigs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,6 +38,17 @@ export default function AdminSettingsPage() {
   const [testMessage, setTestMessage] = useState('Halo! Ini adalah pesan uji coba dari sistem bot F&B Resto.');
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Telegram Setup & Test State
+  const [tgWebhookUrl, setTgWebhookUrl] = useState('');
+  const [settingTgWebhook, setSettingTgWebhook] = useState(false);
+  const [tgWebhookResult, setTgWebhookResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [checkingTgInfo, setCheckingTgInfo] = useState(false);
+  const [tgWebhookInfo, setTgWebhookInfo] = useState<any>(null);
+  const [testTgChatId, setTestTgChatId] = useState('');
+  const [testTgMessage, setTestTgMessage] = useState('Halo! Bot Telegram Resto Anda telah berhasil terhubung dan siap melayani pesanan.');
+  const [sendingTgTest, setSendingTgTest] = useState(false);
+  const [testTgResult, setTestTgResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Whitelist State
   const [whitelistInput, setWhitelistInput] = useState('');
@@ -128,6 +143,95 @@ export default function AdminSettingsPage() {
       setTestResult({ success: false, message: err.message || 'Terjadi kesalahan jaringan' });
     } finally {
       setSendingTest(false);
+    }
+  };
+
+  // Telegram Webhook Setup Handler
+  const handleSetupTelegramWebhook = async () => {
+    if (!configs.telegram_bot_token) {
+      alert('Masukkan Telegram Bot Token terlebih dahulu!');
+      return;
+    }
+    setSettingTgWebhook(true);
+    setTgWebhookResult(null);
+
+    try {
+      const defaultUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/telegram` : '';
+      const targetUrl = tgWebhookUrl.trim() || defaultUrl;
+
+      const res = await fetch('/api/telegram/setup-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webhookUrl: targetUrl,
+          token: configs.telegram_bot_token,
+        }),
+      });
+
+      const data = await res.json();
+      setTgWebhookResult({
+        success: data.ok,
+        message: data.message || (data.ok ? 'Webhook Telegram berhasil dipasang!' : 'Gagal memasang webhook'),
+      });
+      if (data.ok) {
+        handleConfigChange('telegram_webhook_url', targetUrl);
+      }
+    } catch (err: any) {
+      setTgWebhookResult({ success: false, message: err.message || 'Terjadi kesalahan jaringan' });
+    } finally {
+      setSettingTgWebhook(false);
+    }
+  };
+
+  // Check Telegram Webhook Info from Telegram API
+  const handleCheckTelegramWebhookInfo = async () => {
+    if (!configs.telegram_bot_token) {
+      alert('Masukkan Telegram Bot Token terlebih dahulu!');
+      return;
+    }
+    setCheckingTgInfo(true);
+    try {
+      const res = await fetch(`/api/telegram/setup-webhook?token=${encodeURIComponent(configs.telegram_bot_token.trim())}`);
+      const data = await res.json();
+      if (data.ok) {
+        setTgWebhookInfo(data.info);
+      } else {
+        alert(data.message || 'Gagal mengambil status webhook dari Telegram');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Gagal terhubung');
+    } finally {
+      setCheckingTgInfo(false);
+    }
+  };
+
+  // Test Send Telegram Message
+  const handleSendTestTelegram = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testTgChatId) return;
+    setSendingTgTest(true);
+    setTestTgResult(null);
+
+    try {
+      const res = await fetch('/api/telegram/test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: testTgChatId,
+          message: testTgMessage,
+          token: configs.telegram_bot_token,
+        }),
+      });
+
+      const data = await res.json();
+      setTestTgResult({
+        success: data.status,
+        message: data.message || (data.status ? 'Pesan Telegram berhasil terkirim!' : 'Gagal mengirim pesan Telegram'),
+      });
+    } catch (err: any) {
+      setTestTgResult({ success: false, message: err.message || 'Terjadi kesalahan jaringan' });
+    } finally {
+      setSendingTgTest(false);
     }
   };
 
@@ -283,12 +387,12 @@ export default function AdminSettingsPage() {
         {[
           { key: 'simulator', label: 'Interactive Simulator (Sandbox)', icon: Bot },
           { key: 'general', label: 'Profil Restoran', icon: Store },
-          { key: 'wablas', label: 'Gateway WhatsApp (Fonnte / Wablas)', icon: Key },
+          { key: 'gateway', label: 'Gateway Bot (Telegram / WA)', icon: Key },
           { key: 'templates', label: 'Template Pesan & Bank', icon: MessageSquare },
           { key: 'whitelist', label: 'Mode Whitelist', icon: Shield },
         ].map((tab) => {
           const Icon = tab.icon;
-          const isActive = activeTab === tab.key;
+          const isActive = activeTab === tab.key || (tab.key === 'gateway' && activeTab === 'wablas');
           return (
             <button
               key={tab.key}
@@ -423,6 +527,7 @@ export default function AdminSettingsPage() {
 
               <div className="flex flex-wrap gap-1.5">
                 {[
+                  '/start',
                   'MENU',
                   'ORDER',
                   'ORDER M1 2, D1 1',
@@ -526,23 +631,35 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
-      {/* Tab 3: Gateway WhatsApp Credentials */}
-      {activeTab === 'wablas' && (
+      {/* Tab 3: Gateway Bot Credentials (Telegram / WhatsApp) */}
+      {(activeTab === 'gateway' || activeTab === 'wablas') && (
         <div className="space-y-6 max-w-3xl">
           {/* Provider Selector Card */}
           <div className="corporate-card p-6 bg-white space-y-5 text-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <h2 className="text-sm font-bold text-slate-900">
-                  Pilih Gateway WhatsApp Provider
+                  Pilih Gateway Bot Provider
                 </h2>
                 <p className="text-slate-500 text-[11px] mt-0.5">
-                  Pilih layanan gateway yang Anda gunakan untuk menghubungkan nomor WhatsApp bisnis Anda.
+                  Pilih layanan yang Anda gunakan untuk menghubungkan bot toko Anda ke pelanggan.
                 </p>
               </div>
 
               {/* Provider Radio Pills */}
               <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => handleConfigChange('gateway_provider', 'telegram')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    (configs.gateway_provider || 'telegram') === 'telegram'
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Telegram Bot</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => handleConfigChange('gateway_provider', 'fonnte')}
@@ -552,24 +669,228 @@ export default function AdminSettingsPage() {
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Fonnte
+                  Fonnte (WA)
                 </button>
                 <button
                   type="button"
                   onClick={() => handleConfigChange('gateway_provider', 'wablas')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    (configs.gateway_provider || 'wablas') === 'wablas'
+                    configs.gateway_provider === 'wablas'
                       ? 'bg-blue-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Wablas
+                  Wablas (WA)
                 </button>
               </div>
             </div>
 
-            {/* Provider 1: FONNTE */}
-            {(configs.gateway_provider || 'wablas') === 'fonnte' ? (
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {/* PROVIDER 1: TELEGRAM BOT API (DEFAULT & RECOMMENDED)            */}
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {(configs.gateway_provider || 'telegram') === 'telegram' && (
+              <div className="space-y-5">
+                {/* Tutorial / Guide Card */}
+                <div className="p-4 bg-sky-50/80 border border-sky-200 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-sky-950 flex items-center gap-1.5 text-xs">
+                      <span>💡 Cara Menghubungkan Telegram Bot (Gratis & Stabil 24/7):</span>
+                    </h4>
+                    <span className="bg-sky-200/70 text-sky-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      Resmi & Tanpa HP Fisik
+                    </span>
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-sky-900 leading-relaxed font-medium">
+                    <li>
+                      Buka Telegram lalu chat dengan{' '}
+                      <a
+                        href="https://t.me/BotFather"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-bold underline text-sky-950 inline-flex items-center gap-0.5"
+                      >
+                        @BotFather <ExternalLink className="w-2.5 h-2.5 inline" />
+                      </a>
+                      .
+                    </li>
+                    <li>
+                      Ketik command <code className="bg-white px-1 py-0.5 rounded border border-sky-300 font-mono text-[10px]">/newbot</code>, lalu ikuti instruksi untuk mengisi nama bot dan username bot (harus berakhiran <i>bot</i>, contoh: <code className="bg-white px-1 py-0.5 rounded border border-sky-300 font-mono text-[10px]">RestoSedapBot</code>).
+                    </li>
+                    <li>
+                      Salin <b>HTTP API Token</b> yang diberikan BotFather, lalu tempelkan pada kolom <b>Telegram Bot Token</b> di bawah ini.
+                    </li>
+                    <li>
+                      Untuk Chat ID Admin: Cari bot{' '}
+                      <a
+                        href="https://t.me/userinfobot"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-bold underline text-sky-950 inline-flex items-center gap-0.5"
+                      >
+                        @userinfobot <ExternalLink className="w-2.5 h-2.5 inline" />
+                      </a>{' '}
+                      di Telegram, ketik <code className="bg-white px-1 py-0.5 rounded border border-sky-300 font-mono text-[10px]">/start</code>, dan salin nomor <b>Id</b> Anda ke kolom Admin Chat ID.
+                    </li>
+                    <li>
+                      Klik tombol <b>&quot;Pasang Webhook ke Telegram&quot;</b> di bawah untuk mengaktifkan webhook secara instan!
+                    </li>
+                  </ol>
+                </div>
+
+                {/* Token & Chat ID Inputs */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Telegram Bot Token <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={configs.telegram_bot_token || ''}
+                      onChange={(e) => handleConfigChange('telegram_bot_token', e.target.value)}
+                      placeholder="Contoh: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                      className="corporate-input w-full text-xs font-mono font-bold"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Token API dari @BotFather di Telegram
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Telegram Admin Chat ID (Notifikasi Pesanan)
+                    </label>
+                    <input
+                      type="text"
+                      value={configs.telegram_admin_chat_id || ''}
+                      onChange={(e) => handleConfigChange('telegram_admin_chat_id', e.target.value)}
+                      placeholder="Contoh: 987654321"
+                      className="corporate-input w-full text-xs font-mono font-bold"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      ID akun Telegram Anda dari @userinfobot untuk terima notifikasi order baru
+                    </p>
+                  </div>
+                </div>
+
+                {/* Webhook Registration Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-xs">Pemasangan Webhook Otomatis (1-Klik)</h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Daftarkan URL server aplikasi ke Telegram API agar Telegram dapat mengirimkan chat secara langsung.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Webhook URL Endpoint</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={
+                          tgWebhookUrl ||
+                          configs.telegram_webhook_url ||
+                          (typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/telegram` : '')
+                        }
+                        onChange={(e) => setTgWebhookUrl(e.target.value)}
+                        placeholder="https://domain-anda.com/api/webhook/telegram"
+                        className="corporate-input flex-1 font-mono text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url =
+                            tgWebhookUrl ||
+                            configs.telegram_webhook_url ||
+                            (typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/telegram` : '');
+                          navigator.clipboard.writeText(url);
+                          alert('Webhook URL berhasil disalin!');
+                        }}
+                        className="corporate-btn-secondary px-3 text-[11px] font-semibold"
+                      >
+                        Salin
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Wajib berawalan <code className="font-mono">https://</code> sesuai persyaratan keamanan Telegram Bot API.
+                    </p>
+                  </div>
+
+                  {tgWebhookResult && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs font-semibold ${
+                        tgWebhookResult.success
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : 'bg-rose-50 text-rose-800 border-rose-200'
+                      }`}
+                    >
+                      {tgWebhookResult.message}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSetupTelegramWebhook}
+                      disabled={settingTgWebhook || !configs.telegram_bot_token}
+                      className="corporate-btn-primary py-2 px-4 text-xs font-bold bg-sky-600 hover:bg-sky-700 border-sky-600"
+                    >
+                      {settingTgWebhook ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Globe className="w-3.5 h-3.5" />
+                      )}
+                      <span>Pasang Webhook ke Telegram</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCheckTelegramWebhookInfo}
+                      disabled={checkingTgInfo || !configs.telegram_bot_token}
+                      className="corporate-btn-secondary py-2 px-3 text-xs font-semibold"
+                    >
+                      {checkingTgInfo ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Info className="w-3.5 h-3.5" />
+                      )}
+                      <span>Cek Info Webhook</span>
+                    </button>
+                  </div>
+
+                  {/* Diagnostic Telegram Webhook Info */}
+                  {tgWebhookInfo && (
+                    <div className="mt-3 p-3 bg-white rounded-lg border border-slate-200 space-y-1.5 text-[11px]">
+                      <div className="font-bold text-slate-800 flex items-center justify-between border-b border-slate-100 pb-1">
+                        <span>📊 Status Webhook di Server Telegram:</span>
+                        <span className="text-[10px] text-emerald-600 font-semibold">Terkoneksi</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600 pt-1">
+                        <div>
+                          <span className="font-semibold block text-slate-500">URL Terdaftar:</span>
+                          <span className="font-mono text-slate-800 break-all">{tgWebhookInfo.url || 'Belum terpasang'}</span>
+                        </div>
+                        <div>
+                          <span className="font-semibold block text-slate-500">Pending Updates:</span>
+                          <span className="font-bold text-slate-900">{tgWebhookInfo.pending_update_count ?? 0}</span>
+                        </div>
+                        {tgWebhookInfo.last_error_message && (
+                          <div className="sm:col-span-2 text-rose-600 font-semibold">
+                            <span>Last Error: </span>{tgWebhookInfo.last_error_message}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {/* PROVIDER 2: FONNTE (WHATSAPP)                                   */}
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {configs.gateway_provider === 'fonnte' && (
               <div className="space-y-4">
                 <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
                   <h4 className="font-bold text-emerald-900 flex items-center gap-1.5">
@@ -599,8 +920,12 @@ export default function AdminSettingsPage() {
                   </p>
                 </div>
               </div>
-            ) : (
-              /* Provider 2: WABLAS */
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {/* PROVIDER 3: WABLAS (WHATSAPP)                                   */}
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {configs.gateway_provider === 'wablas' && (
               <div className="space-y-4">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Domain Server Wablas</label>
@@ -636,83 +961,136 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
             )}
+          </div>
 
-            {/* Webhook Endpoint Info Box */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
-              <div>
-                <span className="text-[11px] font-bold text-slate-700 block">Webhook URL Pesan Masuk (Inbound):</span>
-                <span className="font-mono text-[11px] text-blue-600 font-bold select-all">
-                  https://ekskul-iota.vercel.app/api/webhook
+          {/* ══════════════════════════════════════════════════════════════════ */}
+          {/* UJI COBA KIRIM PESAN REAL                                        */}
+          {/* ══════════════════════════════════════════════════════════════════ */}
+          {(configs.gateway_provider || 'telegram') === 'telegram' ? (
+            /* Form Uji Kirim Telegram */
+            <div className="corporate-card p-6 bg-white space-y-4 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Uji Coba Kirim Pesan Telegram Nyata</h3>
+                  <p className="text-slate-500 text-[11px] mt-0.5">
+                    Kirim pesan uji coba ke akun Telegram Anda untuk memastikan token bot sudah benar:
+                  </p>
+                </div>
+                <span className="bg-sky-100 text-sky-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  Telegram Test
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText('https://ekskul-iota.vercel.app/api/webhook');
-                  alert('Webhook URL berhasil disalin!');
-                }}
-                className="corporate-btn-secondary py-1 px-2.5 text-[11px] font-semibold shrink-0"
-              >
-                Salin Webhook URL
-              </button>
-            </div>
-          </div>
 
-          {/* Form Uji Kirim Pesan Nyata */}
-          <div className="corporate-card p-6 bg-white space-y-4 text-xs">
-            <h3 className="font-bold text-slate-900 text-sm">Uji Coba Kirim WhatsApp Nyata</h3>
-            <p className="text-slate-500 text-[11px]">
-              Kirim pesan langsung ke nomor HP tertentu untuk memastikan token Wablas terhubung dengan baik:
-            </p>
+              {testTgResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs font-semibold ${
+                    testTgResult.success
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`}
+                >
+                  {testTgResult.message}
+                </div>
+              )}
 
-            {testResult && (
-              <div
-                className={`p-3 rounded-xl border text-xs font-semibold ${
-                  testResult.success
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                    : 'bg-rose-50 text-rose-800 border-rose-200'
-                }`}
-              >
-                {testResult.message}
-              </div>
-            )}
+              <form onSubmit={handleSendTestTelegram} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Chat ID Penerima <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={testTgChatId || configs.telegram_admin_chat_id || ''}
+                      onChange={(e) => setTestTgChatId(e.target.value)}
+                      placeholder="Contoh: 123456789"
+                      className="corporate-input w-full font-mono text-xs font-bold"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Chat ID dari bot @userinfobot Anda di Telegram
+                    </p>
+                  </div>
+                </div>
 
-            <form onSubmit={handleSendTestMessage} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Nomor HP Tujuan (Format 62...)</label>
-                  <input
-                    type="text"
+                  <label className="block font-semibold text-slate-700 mb-1">Isi Pesan Uji Coba</label>
+                  <textarea
+                    rows={2}
                     required
-                    value={testPhone}
-                    onChange={(e) => setTestPhone(e.target.value)}
-                    placeholder="6281234567890"
-                    className="corporate-input w-full font-mono text-xs font-bold"
+                    value={testTgMessage}
+                    onChange={(e) => setTestTgMessage(e.target.value)}
+                    className="corporate-input w-full text-xs"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Isi Pesan Uji Coba</label>
-                <textarea
-                  rows={2}
-                  required
-                  value={testMessage}
-                  onChange={(e) => setTestMessage(e.target.value)}
-                  className="corporate-input w-full text-xs"
-                />
-              </div>
+                <button
+                  type="submit"
+                  disabled={sendingTgTest || !configs.telegram_bot_token}
+                  className="corporate-btn-primary py-2 px-4 text-xs font-semibold bg-sky-600 hover:bg-sky-700 border-sky-600"
+                >
+                  {sendingTgTest ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  <span>Kirim Pesan Telegram</span>
+                </button>
+              </form>
+            </div>
+          ) : (
+            /* Form Uji Kirim WhatsApp (Fonnte / Wablas) */
+            <div className="corporate-card p-6 bg-white space-y-4 text-xs">
+              <h3 className="font-bold text-slate-900 text-sm">Uji Coba Kirim WhatsApp Nyata</h3>
+              <p className="text-slate-500 text-[11px]">
+                Kirim pesan langsung ke nomor HP tertentu untuk memastikan gateway WhatsApp terhubung dengan baik:
+              </p>
 
-              <button
-                type="submit"
-                disabled={sendingTest}
-                className="corporate-btn-primary py-2 px-4 text-xs font-semibold"
-              >
-                {sendingTest ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                <span>Kirim Pesan Uji Coba</span>
-              </button>
-            </form>
-          </div>
+              {testResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs font-semibold ${
+                    testResult.success
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`}
+                >
+                  {testResult.message}
+                </div>
+              )}
+
+              <form onSubmit={handleSendTestMessage} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Nomor HP Tujuan (Format 62...)</label>
+                    <input
+                      type="text"
+                      required
+                      value={testPhone}
+                      onChange={(e) => setTestPhone(e.target.value)}
+                      placeholder="6281234567890"
+                      className="corporate-input w-full font-mono text-xs font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Isi Pesan Uji Coba</label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={testMessage}
+                    onChange={(e) => setTestMessage(e.target.value)}
+                    className="corporate-input w-full text-xs"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={sendingTest}
+                  className="corporate-btn-primary py-2 px-4 text-xs font-semibold"
+                >
+                  {sendingTest ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  <span>Kirim Pesan Uji Coba</span>
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       )}
 

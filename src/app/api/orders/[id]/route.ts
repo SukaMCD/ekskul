@@ -3,6 +3,7 @@ import connectDB from '@/lib/db';
 import Order from '@/models/Order';
 import { getSessionUserFromRequest } from '@/lib/auth';
 import { getBotConfigs, sendWhatsAppMessage } from '@/lib/wablas';
+import { sendTelegramMessage } from '@/lib/telegram';
 
 export async function GET(
   request: NextRequest,
@@ -84,7 +85,15 @@ export async function PATCH(
       }
 
       if (statusText) {
-        await sendWhatsAppMessage(order.customerPhone, statusText, configs);
+        const isTelegram =
+          configs.gateway_provider === 'telegram' ||
+          (!order.customerPhone.startsWith('62') && !order.customerPhone.startsWith('0'));
+
+        if (isTelegram) {
+          await sendTelegramMessage(order.customerPhone, statusText, configs);
+        } else {
+          await sendWhatsAppMessage(order.customerPhone, statusText, configs);
+        }
       }
     }
 

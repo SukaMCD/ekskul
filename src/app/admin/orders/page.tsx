@@ -148,7 +148,7 @@ export default function AdminOrdersPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Manajemen Pesanan</h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Kelola transaksi pesanan masuk, verifikasi bukti transfer, dan kirim update ke pelanggan via WhatsApp
+            Kelola transaksi pesanan masuk, verifikasi bukti transfer, dan kirim update ke pelanggan via Telegram / WhatsApp
           </p>
         </div>
         <button
@@ -449,7 +449,7 @@ export default function AdminOrdersPage() {
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                 />
                 <label htmlFor="waNotifCheck" className="text-xs font-semibold text-slate-700 cursor-pointer">
-                  Kirim notifikasi pesan status otomatis ke WhatsApp pelanggan ({selectedOrder.customerPhone})
+                  Kirim notifikasi pesan status otomatis ke pelanggan ({selectedOrder.customerPhone})
                 </label>
               </div>
 

@@ -14,6 +14,10 @@ import {
   logBotMessage,
   BotConfigMap,
 } from './wablas';
+import {
+  sendTelegramMessage,
+  sendTelegramPhoto,
+} from './telegram';
 
 export async function generateInvoiceNo(): Promise<string> {
   await connectDB();
@@ -92,6 +96,8 @@ export async function getFormattedMenuForBot(): Promise<string> {
 }
 
 export interface InboundPayload {
+  platform?: 'telegram' | 'whatsapp' | string;
+  chatId?: string | number;
   phone?: string;
   from?: string;
   sender?: string;
@@ -107,6 +113,8 @@ export interface InboundPayload {
   file?: string;
   url?: string;
   image?: string;
+  pushName?: string;
+  username?: string;
   interactive?: {
     button_reply?: { title: string };
     list_reply?: { title: string };
@@ -316,23 +324,25 @@ async function handleFinalizeOrder(
   invoiceMsg += "═════════════════════════\n\n";
   invoiceMsg += "💳 *CARA PEMBAYARAN:*\n";
   invoiceMsg += `${bankInfo}\n\n`;
-  invoiceMsg += "📸 *PENTING:* Setelah transfer, silakan *kirim foto bukti transfer* langsung ke chat WhatsApp ini ya kak agar pesanan langsung kami masak!\n\n";
+  invoiceMsg += "📸 *PENTING:* Setelah transfer, silakan *kirim foto bukti transfer* langsung ke chat ini ya kak agar pesanan langsung kami proses!\n\n";
   invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏😊";
 
   await sendMsg(phone, invoiceMsg);
 
-  if (adminPhone) {
+  const adminChatId = String(configs.telegram_admin_chat_id || '').trim();
+  if (adminPhone || adminChatId) {
     const typeLabel =
       newOrder.orderType === 'dine_in'
         ? 'DINE-IN'
         : newOrder.orderType === 'takeaway'
         ? 'TAKEAWAY'
         : 'DELIVERY';
+    const disp = phone.length > 15 ? phone : displayPhone(phone);
     let adminAlert = "🔥 *PESANAN BARU MASUK!* 🔥\n";
     adminAlert += "═════════════════════════\n";
     adminAlert += `No. Order: *#${invoiceNo}*\n`;
     adminAlert += `Tipe: *${typeLabel}*\n`;
-    adminAlert += `Pelanggan: *${newOrder.customerName}* (${displayPhone(phone)})\n`;
+    adminAlert += `Pelanggan: *${newOrder.customerName}* (${disp})\n`;
     adminAlert += `Tujuan/Meja: *${newOrder.deliveryAddress}*\n`;
     adminAlert += `Catatan: *${newOrder.notes}*\n`;
     adminAlert += "─────────────────────────\n";
@@ -345,7 +355,12 @@ async function handleFinalizeOrder(
     adminAlert += "Status: *Belum Bayar*\n\n";
     adminAlert += "_Buka Admin Dashboard untuk update status atau kirim notifikasi siap._";
 
-    await sendWhatsAppMessage(adminPhone, adminAlert, configs);
+    if (adminChatId) {
+      await sendTelegramMessage(adminChatId, adminAlert, configs);
+    }
+    if (adminPhone && configs.gateway_provider !== 'telegram') {
+      await sendWhatsAppMessage(adminPhone, adminAlert, configs);
+    }
   }
 
   return { status: true, message: 'Order created successfully' };
@@ -364,8 +379,9 @@ export async function processInboundWebhook(
   const replies: string[] = [];
 
   // 1. Extract payload fields
-  const rawPhone = data.phone || data.from || data.sender || '';
-  const phone = normalizePhone(rawPhone);
+  const isTelegram = data.platform === 'telegram' || Boolean(data.chatId);
+  const rawIdentifier = data.chatId ? String(data.chatId) : (data.phone || data.from || data.sender || '');
+  const phone = isTelegram ? rawIdentifier.trim() : normalizePhone(rawIdentifier);
   let type = (data.messageType || data.type || 'text').toLowerCase();
   const isGroup = Boolean(data.isGroup || (data.groupId && data.groupId !== '0'));
   const isFromMe = Boolean(data.isFromMe || data.fromMe);
@@ -390,11 +406,19 @@ export async function processInboundWebhook(
   }
 
   const rawJson = JSON.stringify(data);
-  await logBotMessage(phone, 'inbound', type, text || (type === 'image' ? '[GAMBAR]' : ''), rawJson, isSimulation ? 'simulated_inbound' : 'received');
+  await logBotMessage(
+    phone,
+    'inbound',
+    isTelegram ? (type === 'image' ? 'telegram_image' : 'telegram_text') : type,
+    text || (type === 'image' ? '[GAMBAR/BUKTI]' : ''),
+    rawJson,
+    isSimulation ? 'simulated_inbound' : 'received'
+  );
 
   // Load configs
   const configs = await getBotConfigs();
   const adminPhone = normalizePhone(configs.admin_phone || '');
+  const adminChatId = String(configs.telegram_admin_chat_id || '').trim();
   const botActive = configs.bot_active === '1';
   const storeName = configs.store_name || 'Resto Sedap Rasa';
   const storeAddr = configs.store_address || 'Jl. Boulevard Raya No. 88, Surabaya';
@@ -402,20 +426,47 @@ export async function processInboundWebhook(
   const storeHours = configs.store_hours || '10.00 - 22.00 WIB';
   const bankInfo = configs.bank_info || 'Pembayaran BCA / QRIS';
 
-  const isAdmin = phone === adminPhone && Boolean(adminPhone);
-  const cmdLower = text.toLowerCase();
+  const isAdmin =
+    (phone === adminPhone && Boolean(adminPhone)) ||
+    (Boolean(adminChatId) && String(phone) === adminChatId);
 
-  // Unified send message helper that captures replies for simulator and dispatches to WA when live
+  // Normalize slash commands (e.g. /menu, /start, /order, /status)
+  let cleanText = text;
+  if (cleanText.startsWith('/')) {
+    cleanText = cleanText.replace(/^\/([a-zA-Z0-9_]+)(?:@\w+)?(?:\s*|$)/i, '$1 ').trim();
+  }
+  const cmdLower = cleanText.toLowerCase();
+
+  // Unified send message helper that captures replies for simulator and dispatches to Telegram / WA
   const sendMsg: SendFn = async (targetPhone: string, msg: string) => {
     replies.push(msg);
     if (isSimulation) {
-      await logBotMessage(targetPhone, 'outbound', 'text', msg, '', 'simulated');
+      await logBotMessage(targetPhone, 'outbound', isTelegram ? 'telegram_text' : 'text', msg, '', 'simulated');
+    } else if (isTelegram || configs.gateway_provider === 'telegram') {
+      await sendTelegramMessage(targetPhone, msg, configs);
     } else {
       await sendWhatsAppMessage(targetPhone, msg, configs);
     }
   };
 
-  // 2. Admin Quick WhatsApp Commands
+  // Telegram /start handler: resets session and sends welcome
+  if (cmdLower === 'start' || text === '/start') {
+    let session = await BotSession.findOne({ phone });
+    if (session) {
+      session.state = 'IDLE';
+      session.tempData = {};
+      session.isPaused = false;
+      await session.save();
+    }
+    const welcomeTpl =
+      configs.welcome_message ||
+      `Halo kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nSilakan ketik nomor pilihan berikut:\n1️⃣ *MENU* - Lihat Katalog Menu & Harga\n2️⃣ *ORDER* - Buat Pesanan Baru\n3️⃣ *STATUS* - Cek Status Pesanan\n4️⃣ *INFO* - Lokasi, Jam Buka & Rekening\n5️⃣ *ADMIN* - Bicara dengan Admin / Staf`;
+    const welcomeMsg = welcomeTpl.replace(/{store_name}/g, storeName);
+    await sendMsg(phone, welcomeMsg);
+    return { status: true, message: 'Telegram /start welcome sent', replies };
+  }
+
+  // 2. Admin Quick Commands
   if (isAdmin) {
     if (cmdLower === 'pause bot') {
       await setBotConfig('bot_active', '0');
@@ -573,7 +624,15 @@ export async function processInboundWebhook(
       const reply = `📸 *Bukti Pembayaran Diterima!*\n\nTerima kasih kak! Bukti transfer untuk pesanan *#${latestUnpaid.invoiceNo}* sudah kami terima dan sedang diverifikasi oleh admin/dapur kami.\n\nPesanan akan segera disiapkan! 🍳\nKetik *STATUS* untuk cek status pesanan kapan saja.`;
       await sendMsg(phone, reply);
 
-      if (adminPhone && !isSimulation) {
+      if (adminChatId && !isSimulation) {
+        const adminNotif = `🔔 *BUKTI TRANSFER MASUK!*\n═════════════════════\n• No. Order: *#${latestUnpaid.invoiceNo}*\n• Pembeli: *${latestUnpaid.customerName}* (ID: ${phone})\n• Total: *Rp ${Number(latestUnpaid.grandTotal).toLocaleString('id-ID')}*\n• Status: *Menunggu Verifikasi*\n\nSilakan verifikasi di Admin Dashboard.`;
+        if (latestUnpaid.proofImage && latestUnpaid.proofImage.startsWith('http')) {
+          await sendTelegramPhoto(adminChatId, latestUnpaid.proofImage, adminNotif, configs);
+        } else {
+          await sendTelegramMessage(adminChatId, adminNotif, configs);
+        }
+      }
+      if (adminPhone && !isSimulation && !isTelegram) {
         const adminNotif = `🔔 *BUKTI TRANSFER MASUK!*\n═════════════════════\n• No. Order: *#${latestUnpaid.invoiceNo}*\n• Pembeli: *${latestUnpaid.customerName}* (${phone})\n• Total: *Rp ${Number(latestUnpaid.grandTotal).toLocaleString('id-ID')}*\n• Status: *Menunggu Verifikasi*\n\nSilakan cek di Admin Dashboard untuk verifikasi.`;
         await sendWhatsAppMessage(adminPhone, adminNotif, configs);
       }
@@ -644,7 +703,14 @@ export async function processInboundWebhook(
 
     await sendMsg(phone, `👨‍💼 *Menghubungkan ke Admin / Staf*\n\nPesan kakak sudah kami teruskan ke admin kami. Staf kami akan segera membalas chat kakak secara manual.\n\n_Bot dijeda sementara waktu untuk nomor ini._`);
 
-    if (adminPhone && !isSimulation) {
+    if (adminChatId && !isSimulation) {
+      await sendTelegramMessage(
+        adminChatId,
+        `🔔 *PELANGGAN BUTUH BANTUAN ADMIN!*\nUser: *${data.pushName || phone}* (ID: ${phone})\nPesan terakhir: "${text}"\n\n_Bot otomatis di-pause untuk nomor ini agar admin bisa chat langsung._`,
+        configs
+      );
+    }
+    if (adminPhone && !isSimulation && !isTelegram) {
       const dispPhone = displayPhone(phone);
       await sendWhatsAppMessage(adminPhone, `🔔 *PELANGGAN BUTUH BANTUAN ADMIN!*\nNomor: *${dispPhone}* (${phone})\nPesan terakhir: "${text}"\n\n_Bot otomatis di-pause untuk nomor ini agar admin bisa chat langsung._`, configs);
     }

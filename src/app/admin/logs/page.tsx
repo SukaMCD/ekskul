@@ -188,7 +188,7 @@ export default function AdminLogsPage() {
             )}
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Pantau arus lalu lintas webhook WhatsApp, lacak pesan gagal/error, dan kelola sesi aktif pelanggan secara real-time
+            Pantau arus lalu lintas webhook bot (Telegram & WhatsApp), lacak pesan gagal/error, dan kelola sesi aktif pelanggan secara real-time
           </p>
         </div>
 
@@ -258,7 +258,7 @@ export default function AdminLogsPage() {
             </span>
           </div>
           <p className="text-2xl font-black text-sky-600 mt-2">{stats.totalInbound}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Diterima dari WhatsApp</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Diterima dari Bot Webhook</p>
         </div>
 
         <div className="corporate-card p-4 bg-white border border-slate-200/80">
@@ -413,7 +413,7 @@ export default function AdminLogsPage() {
                         <Info className="w-8 h-8 text-slate-300 mx-auto" />
                         <p className="font-semibold text-slate-600">Belum ada pesan yang tercatat dalam log.</p>
                         <p className="text-[11px] text-slate-400">
-                          Coba kirim chat ke nomor WhatsApp bot Anda atau uji coba di tab *Interactive Simulator* pada Pengaturan.
+                          Coba kirim chat ke bot Telegram/WhatsApp Anda atau uji coba di tab *Interactive Simulator* pada Pengaturan.
                         </p>
                       </div>
                     </td>
