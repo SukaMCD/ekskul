@@ -725,10 +725,15 @@ export async function processInboundWebhook(
     } else if (isTelegram || configs.gateway_provider === 'telegram') {
       let replyMarkup: any = opts?.replyMarkup;
       if (!replyMarkup) {
-        if (opts?.keyboard === 'order_type') replyMarkup = TELEGRAM_ORDER_TYPE_KEYBOARD;
-        else if (opts?.keyboard === 'confirm') replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
-        else if (opts?.keyboard === 'cancel') replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
-        else if (opts?.keyboard === 'none') replyMarkup = undefined;
+        if (opts?.keyboard === 'order_type') {
+          replyMarkup = TELEGRAM_ORDER_TYPE_KEYBOARD;
+        } else if (opts?.keyboard === 'confirm') {
+          replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
+        } else if (opts?.keyboard === 'cancel') {
+          replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
+        } else if (opts?.keyboard === 'none') {
+          replyMarkup = undefined;
+        } else {
           const activeOrder = await Order.findOne({
             customerPhone: targetPhone,
             orderStatus: { $in: ['pending', 'confirmed', 'cooking'] },
@@ -736,6 +741,7 @@ export async function processInboundWebhook(
             createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
           }).sort({ createdAt: -1 });
           replyMarkup = buildDynamicMainMenuKeyboard(activeOrder);
+        }
       }
 
       await sendTelegramMessage(targetPhone, msg, configs, { reply_markup: replyMarkup });
@@ -1357,26 +1363,21 @@ export async function processInboundWebhook(
     }
 
     case 'ORDERING_TYPE': {
-      const typeMap: Record<string, 'dine_in' | 'takeaway' | 'delivery'> = {
-        '1': 'dine_in',
-        'dine in': 'dine_in',
-        'dine-in': 'dine_in',
-        'makan di tempat': 'dine_in',
-        '2': 'takeaway',
-        'take away': 'takeaway',
-        'takeaway': 'takeaway',
-        'bungkus': 'takeaway',
-        '3': 'delivery',
-        'delivery': 'delivery',
-        'antar': 'delivery',
-        'kirim': 'delivery',
-      };
+      let chosenType: 'dine_in' | 'takeaway' | 'delivery' | null = null;
+      const cleanLower = text.toLowerCase();
 
-      const chosenType = typeMap[cmdLower];
+      if (cleanLower.includes('dine') || cleanLower.includes('makan di tempat') || cmdLower === '1' || cleanLower.startsWith('1')) {
+        chosenType = 'dine_in';
+      } else if (cleanLower.includes('takeaway') || cleanLower.includes('bungkus') || cleanLower.includes('take away') || cmdLower === '2' || cleanLower.startsWith('2')) {
+        chosenType = 'takeaway';
+      } else if (cleanLower.includes('delivery') || cleanLower.includes('antar') || cleanLower.includes('kirim') || cmdLower === '3' || cleanLower.startsWith('3')) {
+        chosenType = 'delivery';
+      }
+
       if (!chosenType) {
         await sendMsg(
           phone,
-          `⚠️ Pilihan tidak valid. Silakan klik salah satu pilihan di bawah:`,
+          `⚠️ Silakan klik salah satu tombol tipe pesanan di bawah:`,
           { keyboard: 'order_type' }
         );
         return { status: true, message: 'Invalid order type selection', replies };
@@ -1509,11 +1510,12 @@ export async function processInboundWebhook(
       return { status: true, message: 'Summary sent', replies };
     }
 
-    case 'ORDERING_CONFIRM':
-      if (['ya', 'oke', 'ok', 'benar', '1', 'siap', 'y', 'yes', 'deal'].includes(cmdLower)) {
+    case 'ORDERING_CONFIRM': {
+      const confirmLower = text.toLowerCase().trim();
+      if (['ya', 'oke', 'ok', 'benar', '1', 'siap', 'y', 'yes', 'deal'].includes(cmdLower) || confirmLower.includes('ya') || confirmLower.includes('buat pesanan')) {
         const finRes = await handleFinalizeOrder(phone, tempData, session, configs, sendMsg);
         return { ...finRes, replies };
-      } else if (['batal', 'tidak', 'gak', 'ga', '2', 'cancel', 'no'].includes(cmdLower)) {
+      } else if (['batal', 'tidak', 'gak', 'ga', '2', 'cancel', 'no'].includes(cmdLower) || confirmLower.includes('batal')) {
         session.state = 'IDLE';
         session.tempData = {};
         session.markModified('tempData');
@@ -1524,6 +1526,7 @@ export async function processInboundWebhook(
         await sendMsg(phone, `⚠️ Mohon klik **✅ YA, Buat Pesanan** jika sudah benar, atau **❌ Batal** untuk membatalkan.`, { keyboard: 'confirm' });
         return { status: true, message: 'Waiting valid confirm', replies };
       }
+    }
 
     default:
       session.state = 'IDLE';
