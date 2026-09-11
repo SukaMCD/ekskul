@@ -667,7 +667,7 @@ export async function processInboundWebhook(
   const adminPhone = normalizePhone(configs.admin_phone || '');
   const adminChatId = String(configs.telegram_admin_chat_id || '').trim();
   const botActive = configs.bot_active === '1';
-  const storeName = configs.store_name || 'Resto Sedap Rasa';
+  const storeName = configs.store_name || 'Leafly Resto';
   const storeAddr = configs.store_address || 'Jl. Boulevard Raya No. 88, Surabaya';
   const storeGmaps = configs.store_gmaps || '';
   const storeHours = configs.store_hours || '10.00 - 22.00 WIB';

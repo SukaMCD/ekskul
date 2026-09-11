@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Resto WhatsApp Bot - Corporate Admin Portal',
-  description: 'Enterprise WhatsApp Automated Ordering Bot & F&B Store Management',
+  title: 'Leafly Resto - AI Automation & Commerce Admin Portal',
+  description: 'Leafly Resto - Automated Ordering Bot & F&B Management System',
 };
 
 export default function RootLayout({

@@ -62,7 +62,7 @@ export async function askGroqChatbot({
       return `- [${m.code || 'MENU'}] ${m.name}: Rp ${Number(m.price).toLocaleString('id-ID')} ${stockInfo}${m.description ? ` (${m.description})` : ''}`;
     }).join('\n');
 
-    const storeName = cfg.store_name || 'Resto Sedap Rasa';
+    const storeName = cfg.store_name || 'Leafly Resto';
     const storeAddress = cfg.store_address || 'Jl. Boulevard Raya No. 88, Surabaya';
     const storeHours = cfg.store_hours || '10.00 - 22.00 WIB';
     const storeGmaps = cfg.store_gmaps || '';

@@ -58,8 +58,8 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
   const configs = await BotConfig.find({});
   const map: BotConfigMap = {
     bot_active: '1',
-    bot_name: 'Resto Sedap Rasa Bot',
-    store_name: 'Resto Sedap Rasa (UMKM Kuliner)',
+    bot_name: 'Leafly Bot',
+    store_name: 'Leafly Resto',
     store_address: 'Jl. Boulevard Raya No. 88, Surabaya',
     store_gmaps: 'https://maps.google.com/?q=-7.2575,112.7521',
     store_hours: 'Senin - Minggu: 10.00 - 22.00 WIB',
@@ -71,7 +71,7 @@ export async function getBotConfigs(): Promise<BotConfigMap> {
     wablas_url: 'https://sby.wablas.com',
     wablas_token: '',
     wablas_secret: 'fnb_secret_key_123',
-    bank_info: `💳 *PEMBAYARAN TRANSFER / QRIS*\n• Bank BCA: *1234567890* a/n Resto Sedap Rasa\n• Bank BRI: *0987654321* a/n Resto Sedap Rasa\n• QRIS: (Ketik 'QRIS' untuk minta QR code)`,
+    bank_info: `💳 *PEMBAYARAN TRANSFER / QRIS*\n• Bank BCA: *1234567890* a/n Leafly Resto\n• Bank BRI: *0987654321* a/n Leafly Resto\n• QRIS: (Ketik 'QRIS' untuk minta QR code)`,
     welcome_message: `Halo kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nSilakan ketik nomor pilihan berikut:\n1️⃣ *MENU* - Lihat Katalog Menu & Harga\n2️⃣ *ORDER* - Buat Pesanan Baru\n3️⃣ *STATUS* - Cek Status Pesanan\n4️⃣ *INFO* - Lokasi, Jam Buka & Rekening\n5️⃣ *ADMIN* - Bicara dengan Admin / Staf`,
     whitelist_mode: '0',
     whitelist_numbers: '',

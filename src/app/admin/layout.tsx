@@ -100,13 +100,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 shrink-0">
         {/* Brand */}
         <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center shrink-0 shadow-xs">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0 shadow-xs">
             <Bot className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-bold text-sm tracking-tight text-slate-900">Resto Sedap Rasa</h2>
+            <h2 className="font-bold text-sm tracking-tight text-slate-900">Leafly Resto</h2>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="text-[11px] font-medium text-slate-500">WA Automation Bot</span>
+              <span className="text-[11px] font-medium text-slate-500">AI Automation Bot</span>
             </div>
           </div>
         </div>
@@ -198,11 +198,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Topbar Mobile */}
       <header className="md:hidden flex items-center justify-between p-4 bg-white border-b border-slate-200 sticky top-0 z-30">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center">
             <Bot className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="font-bold text-xs text-slate-900">Sedap Rasa Admin</h2>
+            <h2 className="font-bold text-xs text-slate-900">Leafly Resto Admin</h2>
             <div className="flex items-center gap-1">
               <span className={`w-1.5 h-1.5 rounded-full ${botActive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
               <span className="text-[10px] text-slate-500">{botActive ? 'Bot Active' : 'Bot Paused'}</span>

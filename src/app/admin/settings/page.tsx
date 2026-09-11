@@ -620,18 +620,18 @@ export default function AdminSettingsPage() {
                 type="text"
                 value={configs.store_name || ''}
                 onChange={(e) => handleConfigChange('store_name', e.target.value)}
-                placeholder="Contoh: Resto Sedap Rasa"
+                placeholder="Contoh: Leafly Resto"
                 className="corporate-input w-full text-xs font-semibold"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Nama Bot WhatsApp</label>
+              <label className="block font-semibold text-slate-700 mb-1">Nama Bot (Telegram / WhatsApp)</label>
               <input
                 type="text"
                 value={configs.bot_name || ''}
                 onChange={(e) => handleConfigChange('bot_name', e.target.value)}
-                placeholder="Contoh: Sedap Bot"
+                placeholder="Contoh: Leafly Bot"
                 className="corporate-input w-full text-xs font-semibold"
               />
             </div>
