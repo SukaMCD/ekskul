@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const direction = searchParams.get('direction');
     const status = searchParams.get('status');
+    const sentiment = searchParams.get('sentiment');
     const search = searchParams.get('q');
     const limit = parseInt(searchParams.get('limit') || '100', 10);
     const page = parseInt(searchParams.get('page') || '1', 10);
@@ -29,6 +30,13 @@ export async function GET(request: NextRequest) {
         filter.status = status;
       }
     }
+    if (sentiment && sentiment !== 'all') {
+      if (sentiment === 'urgent') {
+        filter.isUrgentComplaint = true;
+      } else {
+        filter.sentiment = sentiment;
+      }
+    }
     if (search) {
       filter.$or = [
         { phone: { $regex: search, $options: 'i' } },
@@ -37,7 +45,17 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const [total, logs, totalInbound, totalOutbound, totalErrors] = await Promise.all([
+    const [
+      total,
+      logs,
+      totalInbound,
+      totalOutbound,
+      totalErrors,
+      positiveCount,
+      neutralCount,
+      negativeCount,
+      urgentCount
+    ] = await Promise.all([
       BotLog.countDocuments(filter),
       BotLog.find(filter)
         .sort({ createdAt: -1 })
@@ -46,6 +64,10 @@ export async function GET(request: NextRequest) {
       BotLog.countDocuments({ direction: 'inbound' }),
       BotLog.countDocuments({ direction: 'outbound' }),
       BotLog.countDocuments({ status: { $in: ['failed', 'error'] } }),
+      BotLog.countDocuments({ sentiment: 'positive' }),
+      BotLog.countDocuments({ sentiment: 'neutral' }),
+      BotLog.countDocuments({ sentiment: 'negative' }),
+      BotLog.countDocuments({ isUrgentComplaint: true }),
     ]);
 
     return NextResponse.json({
@@ -56,6 +78,10 @@ export async function GET(request: NextRequest) {
         totalInbound,
         totalOutbound,
         totalErrors,
+        positiveCount,
+        neutralCount,
+        negativeCount,
+        urgentCount,
       },
       pagination: {
         total,

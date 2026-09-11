@@ -128,7 +128,13 @@ export async function logBotMessage(
   rawPayload: string = '',
   status: string = 'success',
   statusCode: number | string = 200,
-  errorMessage: string = ''
+  errorMessage: string = '',
+  sentimentData?: {
+    sentiment?: 'positive' | 'neutral' | 'negative';
+    sentimentScore?: number;
+    sentimentReason?: string;
+    isUrgentComplaint?: boolean;
+  }
 ): Promise<void> {
   try {
     await connectDB();
@@ -141,6 +147,10 @@ export async function logBotMessage(
       status,
       statusCode,
       errorMessage,
+      sentiment: sentimentData?.sentiment,
+      sentimentScore: sentimentData?.sentimentScore,
+      sentimentReason: sentimentData?.sentimentReason,
+      isUrgentComplaint: sentimentData?.isUrgentComplaint || false,
     });
   } catch (err) {
     console.error('Failed to log bot message:', err);

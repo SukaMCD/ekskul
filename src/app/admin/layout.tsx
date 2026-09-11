@@ -16,6 +16,8 @@ import {
   Power,
   ShieldCheck,
   RefreshCw,
+  Users,
+  Megaphone,
 } from 'lucide-react';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -89,6 +91,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const navItems = [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Pesanan Masuk', href: '/admin/orders', icon: ShoppingBag },
+    { label: 'Database Pelanggan', href: '/admin/customers', icon: Users },
+    { label: 'Broadcast Pesan', href: '/admin/broadcast', icon: Megaphone },
     { label: 'Katalog Menu', href: '/admin/menu', icon: UtensilsCrossed },
     { label: 'Pengaturan Bot', href: '/admin/settings', icon: Sliders },
     { label: 'Log & Sesi Chat', href: '/admin/logs', icon: History },

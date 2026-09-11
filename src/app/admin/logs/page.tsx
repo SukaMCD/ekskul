@@ -24,6 +24,7 @@ import {
   X,
   Copy,
   Check,
+  Sparkles,
 } from 'lucide-react';
 
 export default function AdminLogsPage() {
@@ -35,11 +36,16 @@ export default function AdminLogsPage() {
     totalInbound: 0,
     totalOutbound: 0,
     totalErrors: 0,
+    positiveCount: 0,
+    neutralCount: 0,
+    negativeCount: 0,
+    urgentCount: 0,
   });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [directionFilter, setDirectionFilter] = useState<'all' | 'inbound' | 'outbound'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error'>('all');
+  const [sentimentFilter, setSentimentFilter] = useState<'all' | 'positive' | 'neutral' | 'negative' | 'urgent'>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [selectedLog, setSelectedLog] = useState<any | null>(null);
@@ -49,7 +55,7 @@ export default function AdminLogsPage() {
     setLoading(true);
     try {
       if (activeTab === 'logs') {
-        let url = `/api/logs?limit=100&direction=${directionFilter}&status=${statusFilter}`;
+        let url = `/api/logs?limit=100&direction=${directionFilter}&status=${statusFilter}&sentiment=${sentimentFilter}`;
         if (search) url += `&q=${encodeURIComponent(search)}`;
         const res = await fetch(url);
         if (res.ok) {
@@ -75,7 +81,7 @@ export default function AdminLogsPage() {
 
   useEffect(() => {
     fetchData();
-  }, [activeTab, directionFilter, statusFilter]);
+  }, [activeTab, directionFilter, statusFilter, sentimentFilter]);
 
   // Auto refresh interval
   useEffect(() => {
@@ -145,7 +151,16 @@ export default function AdminLogsPage() {
       const res = await fetch('/api/logs', { method: 'DELETE' });
       if (res.ok) {
         setLogs([]);
-        setStats({ total: 0, totalInbound: 0, totalOutbound: 0, totalErrors: 0 });
+        setStats({
+          total: 0,
+          totalInbound: 0,
+          totalOutbound: 0,
+          totalErrors: 0,
+          positiveCount: 0,
+          neutralCount: 0,
+          negativeCount: 0,
+          urgentCount: 0,
+        });
       }
     } catch (err) {
       console.error(err);
@@ -286,6 +301,80 @@ export default function AdminLogsPage() {
         </div>
       </div>
 
+      {/* Sentiment Analysis Highlights */}
+      <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center font-bold">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-slate-800">Analisis Sentimen Pesan Pelanggan (AI Groq)</h4>
+            <p className="text-[11px] text-slate-400">Deteksi otomatis kepuasan, nada bicara & komplain dari pesan chat</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setSentimentFilter('positive')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+              sentimentFilter === 'positive'
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+            }`}
+          >
+            <span>😊 Positif</span>
+            <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">{stats.positiveCount}</span>
+          </button>
+
+          <button
+            onClick={() => setSentimentFilter('neutral')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+              sentimentFilter === 'neutral'
+                ? 'bg-slate-700 text-white border-slate-700 shadow-xs'
+                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+            }`}
+          >
+            <span>😐 Netral</span>
+            <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">{stats.neutralCount}</span>
+          </button>
+
+          <button
+            onClick={() => setSentimentFilter('negative')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+              sentimentFilter === 'negative'
+                ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+            }`}
+          >
+            <span>😡 Komplain</span>
+            <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">{stats.negativeCount}</span>
+          </button>
+
+          {stats.urgentCount > 0 && (
+            <button
+              onClick={() => setSentimentFilter('urgent')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all animate-pulse ${
+                sentimentFilter === 'urgent'
+                  ? 'bg-red-700 text-white border-red-700 ring-2 ring-red-300'
+                  : 'bg-red-100 text-red-800 border-red-300'
+              }`}
+            >
+              <span>🚨 Mendesak</span>
+              <span className="bg-red-600 text-white px-1.5 py-0.5 rounded text-[10px] font-black">{stats.urgentCount}</span>
+            </button>
+          )}
+
+          {sentimentFilter !== 'all' && (
+            <button
+              onClick={() => setSentimentFilter('all')}
+              className="text-[11px] font-semibold text-slate-400 hover:text-slate-600 underline ml-1"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Tabs & Search Filter */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-1.5 border-b border-slate-200">
@@ -391,7 +480,8 @@ export default function AdminLogsPage() {
                 <tr>
                   <th className="px-4 py-3 font-semibold">WAKTU</th>
                   <th className="px-4 py-3 font-semibold">ARAH</th>
-                  <th className="px-4 py-3 font-semibold">HTTP / CODE</th>
+                  <th className="px-4 py-3 font-semibold">SENTIMEN</th>
+                  <th className="px-4 py-3 font-semibold">HTTP</th>
                   <th className="px-4 py-3 font-semibold">NOMOR HP</th>
                   <th className="px-4 py-3 font-semibold">ISI PESAN / RESPON SERVER</th>
                   <th className="px-4 py-3 font-semibold">STATUS</th>
@@ -401,14 +491,14 @@ export default function AdminLogsPage() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                       <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-600" />
                       <span>Memuat riwayat log...</span>
                     </td>
                   </tr>
                 ) : logs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                       <div className="max-w-md mx-auto space-y-2">
                         <Info className="w-8 h-8 text-slate-300 mx-auto" />
                         <p className="font-semibold text-slate-600">Belum ada pesan yang tercatat dalam log.</p>
@@ -458,6 +548,29 @@ export default function AdminLogsPage() {
                               </>
                             )}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {log.sentiment === 'positive' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              😊 Positif
+                            </span>
+                          ) : log.sentiment === 'negative' ? (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                                log.isUrgentComplaint
+                                  ? 'bg-red-100 text-red-800 border border-red-300 ring-2 ring-red-200 animate-pulse'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}
+                            >
+                              {log.isUrgentComplaint ? '🚨 Komplain!' : '😡 Negatif'}
+                            </span>
+                          ) : log.sentiment === 'neutral' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                              😐 Netral
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">-</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap font-mono">
                           <span
@@ -681,6 +794,44 @@ export default function AdminLogsPage() {
                     <span>Detail Pesan Error:</span>
                   </p>
                   <p className="font-mono text-[11px]">{selectedLog.errorMessage}</p>
+                </div>
+              )}
+
+              {selectedLog.sentiment && (
+                <div
+                  className={`p-3.5 rounded-xl border space-y-1.5 ${
+                    selectedLog.sentiment === 'positive'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : selectedLog.sentiment === 'negative'
+                      ? 'bg-rose-50 border-rose-200 text-rose-900'
+                      : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Analisis Sentimen (AI Groq):</span>
+                    </span>
+                    <span className="font-black uppercase text-[11px]">
+                      {selectedLog.sentiment === 'positive'
+                        ? '😊 Positif / Puas'
+                        : selectedLog.sentiment === 'negative'
+                        ? selectedLog.isUrgentComplaint
+                          ? '🚨 Komplain Mendesak'
+                          : '😡 Negatif / Kurang Puas'
+                        : '😐 Netral / Standar'}
+                    </span>
+                  </div>
+                  {selectedLog.sentimentReason && (
+                    <p className="text-[11px] font-medium leading-relaxed opacity-90">
+                      💡 <strong>Alasan:</strong> {selectedLog.sentimentReason}
+                    </p>
+                  )}
+                  {selectedLog.sentimentScore !== undefined && (
+                    <p className="text-[10px] font-mono opacity-70">
+                      Skor Emosi: {selectedLog.sentimentScore > 0 ? `+${selectedLog.sentimentScore}` : selectedLog.sentimentScore} (-1.0 s/d +1.0)
+                    </p>
+                  )}
                 </div>
               )}
 

@@ -167,3 +167,160 @@ async function askGroqFallback({
     return null;
   }
 }
+
+export interface SentimentResult {
+  sentiment: 'positive' | 'neutral' | 'negative';
+  score: number; // -1.0 (very negative) to 1.0 (very positive)
+  reason: string;
+  isUrgentComplaint: boolean;
+}
+
+/**
+ * Fast Indonesian Sentiment Rule-based Heuristic
+ */
+export function analyzeSentimentFast(text: string): SentimentResult {
+  const lower = text.toLowerCase().trim();
+
+  // Urgent triggers
+  const urgentTriggers = [
+    'basi', 'tumpah', 'salah kirim', 'belum datang', 'belum nyampe', 'lama banget',
+    'parah', 'kecewa berat', 'tanggung jawab', 'refund', 'uang kembali', 'ganti rugi',
+    'kotor', 'bau', 'batalin aja', 'penipu', 'ga profesional', 'tidak profesional'
+  ];
+
+  const negativeWords = [
+    'kecewa', 'lama', 'basi', 'dingin', 'asin', 'pahit', 'salah', 'kurang', 'tumpah',
+    'batal', 'parah', 'jelek', 'rusak', 'rugi', 'komplain', 'marah', 'lambat', 'bau',
+    'kotor', 'bohong', 'ga enak', 'gak enak', 'nggak enak', 'tidak enak', 'aneh rasanya',
+    'kecewa', 'kemahalan', 'mahal banget', 'buruk', 'kapok'
+  ];
+
+  const positiveWords = [
+    'enak', 'mantap', 'mantul', 'lezat', 'makasih', 'terima kasih', 'makaci', 'juara',
+    'puas', 'top', 'suka', 'bagus', 'cepat', 'ramah', 'rekomend', 'recomended', 'salam',
+    'alhamdulillah', 'jos', 'best', 'nagih', 'segar', 'wangi', 'bersih', 'suka banget',
+    'langganan', 'terbaik', 'keren'
+  ];
+
+  const hasUrgent = urgentTriggers.some(w => lower.includes(w));
+  const negMatches = negativeWords.filter(w => lower.includes(w));
+  const posMatches = positiveWords.filter(w => lower.includes(w));
+
+  if (hasUrgent || negMatches.length > posMatches.length) {
+    const score = Math.max(-1.0, -0.4 - (negMatches.length * 0.2));
+    return {
+      sentiment: 'negative',
+      score,
+      reason: hasUrgent
+        ? `Terdeteksi indikasi komplain mendesak: "${negMatches.join(', ') || 'komplain'}"`
+        : `Kalimat bernada kecewa/negatif (${negMatches.join(', ')})`,
+      isUrgentComplaint: hasUrgent || negMatches.length >= 2,
+    };
+  }
+
+  if (posMatches.length > 0 && posMatches.length >= negMatches.length) {
+    const score = Math.min(1.0, 0.4 + (posMatches.length * 0.2));
+    return {
+      sentiment: 'positive',
+      score,
+      reason: `Pelanggan merasa puas/senang (${posMatches.join(', ')})`,
+      isUrgentComplaint: false,
+    };
+  }
+
+  return {
+    sentiment: 'neutral',
+    score: 0.0,
+    reason: 'Pesan bernada netral/informasi standar pesanan',
+    isUrgentComplaint: false,
+  };
+}
+
+/**
+ * Intelligent Sentiment Analysis powered by Groq LLM with heuristic fallback
+ */
+export async function analyzeSentiment(
+  text: string,
+  configs?: BotConfigMap
+): Promise<SentimentResult> {
+  const clean = (text || '').trim();
+  if (!clean || clean.length < 2) {
+    return { sentiment: 'neutral', score: 0, reason: 'Pesan singkat/simbol', isUrgentComplaint: false };
+  }
+
+  // Check fast heuristic first
+  const fastResult = analyzeSentimentFast(clean);
+
+  // If text is purely a basic command or number, fast heuristic is sufficient
+  if (/^(\d+|\/start|\/menu|\/order|\/batal|\/status|\/info|\/admin|ya|tidak|oke|ok)$/i.test(clean)) {
+    return fastResult;
+  }
+
+  const cfg = configs || (await getBotConfigs());
+  if (!isGroqEnabled(cfg)) {
+    return fastResult;
+  }
+
+  const apiKey = getGroqApiKey(cfg);
+  if (!apiKey) {
+    return fastResult;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 seconds max
+
+    const prompt = `Analisis sentimen pesan pelanggan restoran berikut:
+"${clean}"
+
+Berikan jawaban HANYA berupa JSON valid tanpa teks lain:
+{
+  "sentiment": "positive" | "neutral" | "negative",
+  "score": number (-1.0 sampai 1.0),
+  "reason": "alasan singkat dalam bahasa Indonesia maksimal 1 kalimat",
+  "isUrgentComplaint": boolean (true jika ada komplain makanan rusak/basi/salah/belum sampai/minta ganti rugi)
+}`;
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: getGroqModel(cfg),
+        messages: [
+          { role: 'system', content: 'Kamu adalah AI analisis sentimen customer service restoran. Output HANYA JSON murni.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.1,
+        max_tokens: 150,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content?.trim() || '';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const sentiment = ['positive', 'neutral', 'negative'].includes(parsed.sentiment)
+          ? parsed.sentiment
+          : fastResult.sentiment;
+        return {
+          sentiment,
+          score: typeof parsed.score === 'number' ? parsed.score : fastResult.score,
+          reason: parsed.reason || fastResult.reason,
+          isUrgentComplaint: Boolean(parsed.isUrgentComplaint || fastResult.isUrgentComplaint),
+        };
+      }
+    }
+  } catch {
+    // If Groq fails or timeouts, fallback gracefully to fast heuristic
+  }
+
+  return fastResult;
+}

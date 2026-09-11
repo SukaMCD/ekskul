@@ -31,7 +31,7 @@ import {
   buildQuickNotesKeyboard,
 } from './telegram';
 import { createXenditInvoice } from './xendit';
-import { askGroqChatbot } from './groq';
+import { askGroqChatbot, analyzeSentiment } from './groq';
 
 export async function generateInvoiceNo(): Promise<string> {
   await connectDB();
@@ -652,16 +652,6 @@ export async function processInboundWebhook(
     return { status: true, message: 'Ignored Group/Empty Phone', replies: [] };
   }
 
-  const rawJson = JSON.stringify(data);
-  await logBotMessage(
-    phone,
-    'inbound',
-    isTelegram ? (type === 'image' ? 'telegram_image' : 'telegram_text') : type,
-    text || (type === 'image' ? '[GAMBAR/BUKTI]' : ''),
-    rawJson,
-    isSimulation ? 'simulated_inbound' : 'received'
-  );
-
   // Load configs
   const configs = await getBotConfigs();
   const adminPhone = normalizePhone(configs.admin_phone || '');
@@ -672,6 +662,29 @@ export async function processInboundWebhook(
   const storeGmaps = configs.store_gmaps || '';
   const storeHours = configs.store_hours || '10.00 - 22.00 WIB';
   const bankInfo = configs.bank_info || 'Pembayaran BCA / QRIS';
+
+  // Analisis sentimen pesan masuk
+  let sentimentData: any = undefined;
+  if (text && text.trim().length > 0) {
+    try {
+      sentimentData = await analyzeSentiment(text, configs);
+    } catch {
+      // ignore
+    }
+  }
+
+  const rawJson = JSON.stringify(data);
+  await logBotMessage(
+    phone,
+    'inbound',
+    isTelegram ? (type === 'image' ? 'telegram_image' : 'telegram_text') : type,
+    text || (type === 'image' ? '[GAMBAR/BUKTI]' : ''),
+    rawJson,
+    isSimulation ? 'simulated_inbound' : 'received',
+    200,
+    '',
+    sentimentData
+  );
 
   const isAdmin =
     (phone === adminPhone && Boolean(adminPhone)) ||
