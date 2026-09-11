@@ -289,6 +289,7 @@ async function handleProcessOrderItems(
 
   session.state = 'ORDERING_TYPE';
   session.tempData = tempData;
+  session.markModified('tempData');
   await session.save();
 
   let reply = "✅ *Item Pesanan Dicatat:*\n";
@@ -361,13 +362,24 @@ async function handleFinalizeOrder(
   const adminPhone = normalizePhone(configs.admin_phone || '');
   const bankInfo = configs.bank_info || 'Pembayaran BCA / QRIS';
 
-  // 2. Buat invoice Xendit jika diaktifkan & API key terisi
+  // 2. Hitung subtotal, ongkir, dan grandTotal dengan fallback proteksi
+  let subtotal = Number(tempData.subtotal || 0);
+  if ((!subtotal || isNaN(subtotal) || subtotal <= 0) && items.length > 0) {
+    subtotal = items.reduce((sum: number, it: any) => sum + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+  }
+  const deliveryFee = Number(tempData.delivery_fee || 0);
+  const grandTotal = Number(tempData.grand_total) > 0 ? Number(tempData.grand_total) : (subtotal + deliveryFee);
+  const totalItems = Number(tempData.total_items) > 0 ? Number(tempData.total_items) : items.reduce((s: number, it: any) => s + Number(it.quantity || 1), 0);
+
+  const customerName = (tempData.customer_name && tempData.customer_name !== 'undefined') ? tempData.customer_name : 'Pelanggan';
+  const deliveryAddress = (tempData.delivery_address && tempData.delivery_address !== 'undefined') ? tempData.delivery_address : '-';
+  const orderType = tempData.order_type || 'dine_in';
+
+  // 3. Buat invoice Xendit jika diaktifkan & API key terisi
   const xenditSecret = (configs.xendit_secret_key || '').trim();
   const isXenditActive = configs.xendit_enabled !== '0' && Boolean(xenditSecret);
   let xenditInvoiceUrl = '';
   let xenditInvoiceId = '';
-
-  const grandTotal = Number(tempData.grand_total || 0);
 
   if (isXenditActive && grandTotal > 0) {
     const xenditItems = items.map((it: any) => ({
@@ -376,19 +388,19 @@ async function handleFinalizeOrder(
       price: it.price,
     }));
 
-    if (Number(tempData.delivery_fee || 0) > 0) {
+    if (deliveryFee > 0) {
       xenditItems.push({
         name: 'Ongkos Kirim (Delivery)',
         quantity: 1,
-        price: Number(tempData.delivery_fee),
+        price: deliveryFee,
       });
     }
 
     const xenditRes = await createXenditInvoice({
       externalId: invoiceNo,
       amount: grandTotal,
-      description: `Pesanan #${invoiceNo} - ${tempData.customer_name || 'Pelanggan'}`,
-      customerName: tempData.customer_name || 'Pelanggan',
+      description: `Pesanan #${invoiceNo} - ${customerName}`,
+      customerName: customerName,
       customerPhone: phone,
       items: xenditItems,
       secretKey: xenditSecret,
@@ -405,13 +417,13 @@ async function handleFinalizeOrder(
   const orderData = {
     invoiceNo,
     customerPhone: phone,
-    customerName: tempData.customer_name || 'Pelanggan',
-    orderType: tempData.order_type || 'delivery',
-    deliveryAddress: tempData.delivery_address || '-',
+    customerName: customerName,
+    orderType: orderType,
+    deliveryAddress: deliveryAddress,
     notes: tempData.notes || '-',
-    totalItems: Number(tempData.total_items || 0),
-    subtotal: Number(tempData.subtotal || 0),
-    deliveryFee: Number(tempData.delivery_fee || 0),
+    totalItems: totalItems,
+    subtotal: subtotal,
+    deliveryFee: deliveryFee,
     discount: 0,
     grandTotal: grandTotal,
     paymentMethod: xenditInvoiceUrl ? 'Xendit (QRIS / VA / E-Wallet)' : 'Transfer Bank / QRIS',
@@ -426,6 +438,7 @@ async function handleFinalizeOrder(
 
   session.state = 'IDLE';
   session.tempData = {};
+  session.markModified('tempData');
   await session.save();
 
   let invoiceMsg = "🎉 *PESANAN BERHASIL DIBUAT!*\n";
@@ -959,6 +972,7 @@ export async function processInboundWebhook(
       tempData.delivery_fee = chosenType === 'delivery' ? 10000 : 0;
       session.state = 'ORDERING_NAME_ADDRESS';
       session.tempData = tempData;
+      session.markModified('tempData');
       await session.save();
 
       if (chosenType === 'dine_in') {
@@ -977,11 +991,11 @@ export async function processInboundWebhook(
         return { status: true, message: 'Invalid address input', replies };
       }
 
-      const oType = tempData.order_type || 'delivery';
+      const oType = tempData.order_type || 'dine_in';
       if (oType === 'dine_in') {
         const parts = nameInput.split('-');
         tempData.customer_name = parts[0].trim();
-        tempData.delivery_address = parts[1] ? parts[1].trim() : 'Meja Belum Ditentukan';
+        tempData.delivery_address = parts[1] ? parts[1].trim() : 'Makan di Tempat (Meja Belum Ditentukan)';
       } else if (oType === 'takeaway') {
         tempData.customer_name = nameInput;
         tempData.delivery_address = 'Takeaway / Ambil di Toko';
@@ -991,13 +1005,14 @@ export async function processInboundWebhook(
           tempData.customer_name = parts[0].trim();
           tempData.delivery_address = parts.slice(1).join('-').trim();
         } else {
-          tempData.customer_name = `Kakak ${phone.slice(-4)}`;
+          tempData.customer_name = `Pelanggan`;
           tempData.delivery_address = nameInput;
         }
       }
 
       session.state = 'ORDERING_NOTES';
       session.tempData = tempData;
+      session.markModified('tempData');
       await session.save();
 
       await sendMsg(
@@ -1008,19 +1023,24 @@ export async function processInboundWebhook(
 
     case 'ORDERING_NOTES':
       let notes = text.trim();
-      if (notes === '-' || ['tidak ada', 'gada', 'ga ada', 'tidak', 'no'].includes(notes.toLowerCase())) {
+      if (notes === '-' || ['tidak ada', 'gada', 'ga ada', 'tidak', 'no', 'strip'].includes(notes.toLowerCase())) {
         notes = '-';
       }
       tempData.notes = notes;
 
       const items = tempData.items || [];
-      const subtotal = Number(tempData.subtotal || 0);
+      let subtotal = Number(tempData.subtotal || 0);
+      if ((!subtotal || isNaN(subtotal) || subtotal <= 0) && items.length > 0) {
+        subtotal = items.reduce((s: number, it: any) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+        tempData.subtotal = subtotal;
+      }
       const deliveryFee = Number(tempData.delivery_fee || 0);
       const grandTotal = subtotal + deliveryFee;
       tempData.grand_total = grandTotal;
 
       session.state = 'ORDERING_CONFIRM';
       session.tempData = tempData;
+      session.markModified('tempData');
       await session.save();
 
       const typeTitle =
