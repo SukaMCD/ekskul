@@ -321,7 +321,7 @@ export async function sendTelegramMessage(
     chat_id: targetChatId,
     text: text,
     parse_mode: options?.parse_mode || 'Markdown',
-    reply_markup: options?.reply_markup || TELEGRAM_MAIN_KEYBOARD,
+    reply_markup: options?.reply_markup !== undefined ? options.reply_markup : { remove_keyboard: true },
   };
 
   try {

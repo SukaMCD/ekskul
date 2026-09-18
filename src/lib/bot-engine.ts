@@ -17,19 +17,6 @@ import {
 import {
   sendTelegramMessage,
   sendTelegramPhoto,
-  TELEGRAM_MAIN_KEYBOARD,
-  TELEGRAM_ORDER_TYPE_KEYBOARD,
-  TELEGRAM_CONFIRM_KEYBOARD,
-  TELEGRAM_EXPRESS_CONFIRM_KEYBOARD,
-  TELEGRAM_CANCEL_KEYBOARD,
-  makeTelegramPaymentKeyboard,
-  buildDynamicMainMenuKeyboard,
-  buildMenuKeyboard,
-  buildQuantityKeyboard,
-  buildCartKeyboard,
-  buildTableKeyboard,
-  buildDeliveryLocationKeyboard,
-  buildQuickNotesKeyboard,
 } from './telegram';
 import { createXenditInvoice } from './xendit';
 import { askGroqChatbot, analyzeSentiment, parseOrderWithGroq, ParsedOrderResult } from './groq';
@@ -236,8 +223,7 @@ async function handleAddSingleItemToCart(
     await session.save();
     await sendMsg(
       phone,
-      `⚠️ Maaf kak, menu *${menu.name}* saat ini sedang habis (Stok: 0). Silakan pilih menu lainnya:`,
-      { replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length) }
+      `⚠️ Maaf kak, menu *${menu.name}* saat ini sedang habis (Stok: 0). Silakan pilih menu lainnya (ketik *MENU* untuk katalog):`
     );
     return { status: true, message: 'Out of stock', replies };
   }
@@ -245,8 +231,7 @@ async function handleAddSingleItemToCart(
   if (menu.trackStock && qty > currentStock) {
     await sendMsg(
       phone,
-      `⚠️ Maaf kak, stok untuk *${menu.name}* hanya tersisa *${currentStock}* porsi. Silakan klik jumlah porsi yang sesuai:`,
-      { replyMarkup: buildQuantityKeyboard(menu.name) }
+      `⚠️ Maaf kak, stok untuk *${menu.name}* hanya tersisa *${currentStock}* porsi. Silakan ketik jumlah porsi yang diinginkan:`
     );
     return { status: true, message: 'Stock exceeded', replies };
   }
@@ -279,11 +264,9 @@ async function handleAddSingleItemToCart(
 
   let confirmMsg = `✅ *${qty}x ${menu.name}* dimasukkan ke keranjang!\n`;
   confirmMsg += `🛒 Total Keranjang: *${tempData.total_items} item* (Rp ${Number(tempData.subtotal).toLocaleString('id-ID')})\n\n`;
-  confirmMsg += `Silakan klik menu lain di bawah untuk menambah, atau klik **✅ Selesai & Lanjut** jika sudah selesai:`;
+  confirmMsg += `Ketik menu lain untuk menambah, atau ketik *SELESAI* jika pesanan sudah cukup.`;
 
-  await sendMsg(phone, confirmMsg, {
-    replyMarkup: buildMenuKeyboard(availableMenus, tempData.total_items),
-  });
+  await sendMsg(phone, confirmMsg);
   return { status: true, message: 'Item added to cart', replies };
 }
 
@@ -353,23 +336,44 @@ async function handleProcessOrderItems(
   }
 
   if (parsedItems.length === 0) {
-    // Coba tanyakan ke Groq AI Chatbot jika pelanggan bertanya seputar menu/resto
+    // 1. Coba deteksi pesanan bahasa alami dengan AI Groq terlebih dahulu
+    try {
+      const parsedOrder = await parseOrderWithGroq({
+        userMessage: text,
+        customerName: session.tempData?.customer_name || session.customerName,
+        configs,
+        phone,
+      });
+
+      if (parsedOrder && parsedOrder.isOrderIntent && parsedOrder.items.length > 0) {
+        return applyParsedOrderToSession({
+          phone,
+          parsedOrder,
+          session,
+          tempData,
+          pushName: session.tempData?.customer_name || session.customerName,
+          sendMsg,
+        });
+      }
+    } catch (e: any) {
+      console.error('[BotEngine] AI Order Parsing in handleProcessOrderItems error:', e.message);
+    }
+
+    // 2. Coba tanyakan ke Groq AI Chatbot jika pelanggan bertanya seputar menu/resto
     try {
       const aiReply = await askGroqChatbot({
         userMessage: text,
-        customerName: session.customerName,
+        customerName: session.tempData?.customer_name || session.customerName,
         configs,
+        phone,
       });
 
       if (aiReply) {
-        const availableMenus = await Menu.find({ isAvailable: true }).sort({ code: 1 });
         let replyWithHelp = `${aiReply}\n\n`;
         replyWithHelp += `─────────────────────────\n`;
-        replyWithHelp += `💡 _Silakan klik tombol menu di bawah jika ingin memesan, atau ketik *BATAL* untuk keluar:_`;
+        replyWithHelp += `💡 _Ketik nama menu yang ingin dipesan (atau ketik *MENU* untuk katalog):_`;
 
-        await sendMsg(phone, replyWithHelp, {
-          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
-        });
+        await sendMsg(phone, replyWithHelp);
         return { status: true, message: 'Groq AI Q&A during ordering' };
       }
     } catch (e: any) {
@@ -379,8 +383,8 @@ async function handleProcessOrderItems(
     let msg = "⚠️ Maaf kak, kami belum bisa mengenali format pesanan tersebut.\n\n";
     msg += "💡 *Contoh format yang benar:*\n";
     msg += "• *M1 2, D1 1* (2 Ayam Geprek, 1 Kopi Aren)\n";
-    msg += "• *P1 1, S1 2*\n\n";
-    msg += "Atau cukup **klik tombol menu** di bawah ini, atau ketik *BATAL* untuk keluar.";
+    msg += "• *Pesen Kopi Aren 2 meja 3*\n\n";
+    msg += "Atau ketik *MENU* untuk melihat katalog lengkap, atau *BATAL* untuk keluar.";
     await sendMsg(phone, msg);
     return { status: true, message: 'Unrecognized items' };
   }
@@ -526,9 +530,9 @@ async function applyParsedOrderToSession({
     let askTable = parsedOrder.aiFriendlySummary ? `${parsedOrder.aiFriendlySummary}\n\n` : '';
     askTable += `🍽️ *Catatan Pesanan Tersimpan!*\n`;
     askTable += `Tinggal 1 langkah lagi: Kakak duduk di **meja nomor berapa** ya?\n`;
-    askTable += `_(Cukup balas nomor mejanya, contoh: **Meja 03** atau klik tombol di bawah):_`;
+    askTable += `_(Cukup balas nomor mejanya, contoh: **Meja 03**):_`;
 
-    await sendMsg(phone, askTable, { replyMarkup: buildTableKeyboard() });
+    await sendMsg(phone, askTable);
     return { status: true, message: 'AI Dine-in waiting for table number' };
   }
 
@@ -550,9 +554,9 @@ async function applyParsedOrderToSession({
     reply += "1️⃣ *Makan di Tempat (Dine-In)*\n";
     reply += "2️⃣ *Bungkus (Takeaway)*\n";
     reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
-    reply += "Silakan klik salah satu tombol di bawah:";
+    reply += "Silakan balas pilihan tipe pesanan kakak (1 / 2 / 3):";
 
-    await sendMsg(phone, reply, { keyboard: 'order_type' });
+    await sendMsg(phone, reply);
     return { status: true, message: 'AI order items parsed, asking order type' };
   }
 
@@ -567,14 +571,14 @@ async function applyParsedOrderToSession({
 
     let askAddr = parsedOrder.aiFriendlySummary ? `${parsedOrder.aiFriendlySummary}\n\n` : '';
     askAddr += `🛵 *Pesanan Pesan Antar (Delivery)*\n\n`;
-    askAddr += `Silakan bagikan lokasi GPS atau ketik alamat pengiriman kakak ya:`;
+    askAddr += `Silakan ketik alamat pengiriman kakak ya:`;
 
-    await sendMsg(phone, askAddr, { replyMarkup: buildDeliveryLocationKeyboard() });
+    await sendMsg(phone, askAddr);
     return { status: true, message: 'AI Delivery order waiting for address' };
   }
 
   // Skenario D: Semua data lengkap! (Dine-in dengan nomor meja, atau Takeaway, atau Delivery dengan alamat)
-  // LANGSUNG JUMP KE ORDERING_CONFIRM DENGAN 1 KLIK TANPA FORM PANJANG!
+  // LANGSUNG JUMP KE ORDERING_CONFIRM TANPA FORM PANJANG!
   tempData.order_type = orderType;
   tempData.delivery_fee = orderType === 'delivery' ? 10000 : 0;
   tempData.delivery_address =
@@ -625,9 +629,9 @@ async function applyParsedOrderToSession({
   if (stockErrors.length > 0) {
     summary += `⚠️ _Catatan Stok:_\n${stockErrors.join('\n')}\n\n`;
   }
-  summary += `Klik tombol **✅ YA, Buat Pesanan** di bawah untuk langsung proses ke dapur & bayar QRIS / Kasir:`;
+  summary += `Balas *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
 
-  await sendMsg(phone, summary, { keyboard: 'express_confirm' });
+  await sendMsg(phone, summary);
   return { status: true, message: 'AI Express order ready for confirmation' };
 }
 
@@ -763,7 +767,7 @@ async function handleFinalizeOrder(
 
   if (xenditInvoiceUrl) {
     invoiceMsg += "💳 *PEMBAYARAN OTOMATIS (XENDIT):*\n";
-    invoiceMsg += "Silakan klik tombol *Bayar Sekarang* di bawah ini untuk membayar via:\n";
+    invoiceMsg += "Silakan buka tautan pembayaran berikut untuk membayar via:\n";
     invoiceMsg += "• *QRIS* (GoPay, OVO, DANA, ShopeePay, LinkAja)\n";
     invoiceMsg += "• *Virtual Account* (BCA, BRI, BNI, Mandiri, Permata)\n";
     invoiceMsg += "• *E-Wallet / Retail Outlets*\n\n";
@@ -771,8 +775,7 @@ async function handleFinalizeOrder(
     invoiceMsg += "⚡ *INFO OTOMATIS:* Begitu pembayaran berhasil, pesanan Anda *otomatis terverifikasi LUNAS* dan langsung dimasak di dapur tanpa perlu kirim bukti transfer!\n\n";
     invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏🍽️";
 
-    const paymentMarkup = makeTelegramPaymentKeyboard(xenditInvoiceUrl);
-    await sendMsg(phone, invoiceMsg, { replyMarkup: paymentMarkup });
+    await sendMsg(phone, invoiceMsg);
   } else {
     invoiceMsg += "💳 *CARA PEMBAYARAN MANUAL:*\n";
     invoiceMsg += `${bankInfo}\n\n`;
@@ -947,30 +950,10 @@ export async function processInboundWebhook(
     if (isSimulation) {
       await logBotMessage(targetPhone, 'outbound', isTelegram ? 'telegram_text' : 'text', msg, '', 'simulated');
     } else if (isTelegram || configs.gateway_provider === 'telegram') {
-      let replyMarkup: any = opts?.replyMarkup;
-      if (!replyMarkup) {
-        if (opts?.keyboard === 'order_type') {
-          replyMarkup = TELEGRAM_ORDER_TYPE_KEYBOARD;
-        } else if (opts?.keyboard === 'confirm') {
-          replyMarkup = TELEGRAM_CONFIRM_KEYBOARD;
-        } else if (opts?.keyboard === 'express_confirm') {
-          replyMarkup = TELEGRAM_EXPRESS_CONFIRM_KEYBOARD;
-        } else if (opts?.keyboard === 'cancel') {
-          replyMarkup = TELEGRAM_CANCEL_KEYBOARD;
-        } else if (opts?.keyboard === 'none') {
-          replyMarkup = undefined;
-        } else {
-          const activeOrder = await Order.findOne({
-            customerPhone: targetPhone,
-            orderStatus: { $in: ['pending', 'confirmed', 'cooking'] },
-            grandTotal: { $gt: 0 },
-            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-          }).sort({ createdAt: -1 });
-          replyMarkup = buildDynamicMainMenuKeyboard(activeOrder);
-        }
-      }
-
-      await sendTelegramMessage(targetPhone, msg, configs, { reply_markup: replyMarkup });
+      // Tombol interaktif dinonaktifkan: bersihkan keyboard agar chat murni berbasis teks
+      await sendTelegramMessage(targetPhone, msg, configs, {
+        reply_markup: { remove_keyboard: true },
+      });
     } else {
       await sendWhatsAppMessage(targetPhone, msg, configs);
     }
@@ -1293,10 +1276,8 @@ export async function processInboundWebhook(
       billMsg += `💰 *Total: Rp ${Number(targetOrder.grandTotal).toLocaleString('id-ID')}*\n\n`;
 
       if (targetOrder.xenditInvoiceUrl) {
-        billMsg += `Silakan klik tombol di bawah untuk membayar via **QRIS, VA Bank, atau E-Wallet**:`;
-        await sendTelegramMessage(phone, billMsg, configs, {
-          reply_markup: makeTelegramPaymentKeyboard(targetOrder.xenditInvoiceUrl),
-        });
+        billMsg += `Silakan buka tautan berikut untuk membayar via **QRIS, VA Bank, atau E-Wallet**:\n${targetOrder.xenditInvoiceUrl}`;
+        await sendMsg(phone, billMsg);
         return { status: true, message: 'Existing payment link sent', replies };
       } else {
         const xenditSecret = configs.xendit_secret_key || process.env.XENDIT_SECRET_KEY || '';
@@ -1319,10 +1300,8 @@ export async function processInboundWebhook(
           targetOrder.xenditInvoiceUrl = xenditRes.data.invoice_url;
           await targetOrder.save();
 
-          billMsg += `Silakan klik tombol di bawah untuk membayar via **QRIS, VA Bank, atau E-Wallet**:`;
-          await sendTelegramMessage(phone, billMsg, configs, {
-            reply_markup: makeTelegramPaymentKeyboard(xenditRes.data.invoice_url),
-          });
+          billMsg += `Silakan buka tautan berikut untuk membayar via **QRIS, VA Bank, atau E-Wallet**:\n${xenditRes.data.invoice_url}`;
+          await sendMsg(phone, billMsg);
           return { status: true, message: 'New payment link sent', replies };
         } else {
           billMsg += `_Silakan transfer ke rekening berikut:_\n\n${bankInfo}`;
@@ -1333,7 +1312,7 @@ export async function processInboundWebhook(
     }
   }
 
-  // Dynamic Button: Batalkan Pesanan Tertentu
+  // Batalkan Pesanan Tertentu
   const cancelSpecificMatch = text.match(/(?:❌\s*)?batal(?:kan)?\s*(?:#)?(ORD-[\d-]+)/i);
   if (cancelSpecificMatch) {
     const invNo = cancelSpecificMatch[1];
@@ -1341,7 +1320,7 @@ export async function processInboundWebhook(
     if (targetOrder) {
       targetOrder.orderStatus = 'cancelled';
       await targetOrder.save();
-      await sendMsg(phone, `✅ Pesanan *#${invNo}* telah berhasil dibatalkan.\n\nTombol tagihan telah dibersihkan. Silakan klik *Lihat Menu* atau *Pesan (ORDER)* untuk membuat pesanan baru.`);
+      await sendMsg(phone, `✅ Pesanan *#${invNo}* telah berhasil dibatalkan.\n\nSilakan ketik *MENU* atau *ORDER* untuk membuat pesanan baru.`);
       return { status: true, message: 'Specific order cancelled', replies };
     }
   }
@@ -1396,8 +1375,16 @@ export async function processInboundWebhook(
   const orderMatch = text.match(/^(order|pesan)\s+(.+)$/i);
   if (orderMatch) {
     const itemsText = orderMatch[2].trim();
-    const res = await handleProcessOrderItems(phone, itemsText, tempData, session, configs, sendMsg);
-    return { ...res, replies };
+    // Hanya proses secara manual jika teksnya ketat berupa kode menu singkat (misal: "M1 2, D1 1")
+    // Jika mengandung kata-kata bahasa manusia (ayam, bakar, meja, alamat, bungkus, dll), serahkan ke AI parser!
+    const isStrictCodePattern =
+      /^([A-Za-z0-9]{1,4}\s*[:xX]?\s*\d*\s*[,;\s]*)+$/.test(itemsText) &&
+      !/(alamat|meja|bawa|pulang|bungkus|antar|kirim|takeaway|delivery|dine|toko|kos|jalan|jl|pedes|pedas|manis|sambal|makan|porsi)/i.test(itemsText);
+
+    if (isStrictCodePattern) {
+      const res = await handleProcessOrderItems(phone, itemsText, tempData, session, configs, sendMsg);
+      return { ...res, replies };
+    }
   }
 
   // Direct AI Question: e.g. "tanya makanan apa yang rekomendasi?" or "ai es tehnya manis gak?"
@@ -1409,6 +1396,7 @@ export async function processInboundWebhook(
         userMessage: userQuestion,
         customerName: data.pushName,
         configs,
+        phone,
       });
       if (aiReply) {
         await sendMsg(phone, aiReply);
@@ -1435,11 +1423,11 @@ export async function processInboundWebhook(
         guide += "Kakak bisa langsung ketik santai apa yang ingin dipesan, contoh:\n";
         guide += "• _\"Pesen Kopi Aren 2 meja 3\"_\n";
         guide += "• _\"Ayam Geprek 2 pedes banget, Es Teh Manis 1\"_\n\n";
-        guide += "Atau **klik tombol menu** di bawah jika ingin memilih satu per satu:\n";
+        guide += "Atau ketik kode/nama menu yang ingin dipesan (contoh: *M1 2*):\n";
         guide += "_(Ketik *BATAL* kapan saja jika ingin keluar)_";
 
-        await sendMsg(phone, guide, { replyMarkup: buildMenuKeyboard(availableMenus, 0) });
-        return { status: true, message: 'Ordering guide sent with menu keyboard', replies };
+        await sendMsg(phone, guide);
+        return { status: true, message: 'Ordering guide sent', replies };
       }
 
       // Deteksi jika pesan adalah pertanyaan/pernyataan (bukan salam pembuka sederhana)
@@ -1452,6 +1440,7 @@ export async function processInboundWebhook(
             userMessage: text,
             customerName: data.pushName,
             configs,
+            phone,
           });
 
           if (parsedOrder && parsedOrder.isOrderIntent && parsedOrder.items.length > 0) {
@@ -1475,6 +1464,7 @@ export async function processInboundWebhook(
             userMessage: text,
             customerName: data.pushName,
             configs,
+            phone,
           });
 
           if (aiReply) {
@@ -1496,14 +1486,13 @@ export async function processInboundWebhook(
       const availableMenus = await Menu.find({ isAvailable: true }).sort({ code: 1 });
       const cleanLower = text.toLowerCase().trim();
 
-      // 1. Cek jika user klik "✅ Selesai & Lanjut"
+      // 1. Cek jika user ketik "selesai" / "lanjut"
       if (cleanLower.includes('selesai') || cleanLower.includes('lanjut') || cleanLower === 'deal') {
         const currentItems = tempData.items || [];
         if (currentItems.length === 0) {
           await sendMsg(
             phone,
-            "⚠️ Keranjang belanja kakak masih kosong. Silakan klik menu di bawah terlebih dahulu ya kak:",
-            { replyMarkup: buildMenuKeyboard(availableMenus, 0) }
+            "⚠️ Keranjang belanja kakak masih kosong. Silakan ketik nama menu yang ingin dipesan (ketik *MENU* untuk katalog):"
           );
           return { status: true, message: 'Cart empty', replies };
         }
@@ -1522,20 +1511,19 @@ export async function processInboundWebhook(
         reply += "1️⃣ *Makan di Tempat (Dine-In)*\n";
         reply += "2️⃣ *Bungkus (Takeaway)*\n";
         reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
-        reply += "Silakan klik salah satu tombol di bawah:";
+        reply += "Silakan balas pilihan tipe pesanan kakak (1 / 2 / 3):";
 
-        await sendMsg(phone, reply, { keyboard: 'order_type' });
+        await sendMsg(phone, reply);
         return { status: true, message: 'Proceeded to order type', replies };
       }
 
-      // 2. Cek jika user klik "🛒 Keranjang"
+      // 2. Cek jika user ketik "keranjang" / "cart"
       if (cleanLower.includes('keranjang') || cleanLower.includes('cart')) {
         const currentItems = tempData.items || [];
         if (currentItems.length === 0) {
           await sendMsg(
             phone,
-            "🛒 *Keranjang Belanja:* Masih Kosong\n\nSilakan klik salah satu tombol menu di bawah untuk mulai memesan:",
-            { replyMarkup: buildMenuKeyboard(availableMenus, 0) }
+            "🛒 *Keranjang Belanja:* Masih Kosong\n\nSilakan ketik nama menu yang ingin dipesan (ketik *MENU* untuk katalog):"
           );
           return { status: true, message: 'Cart empty', replies };
         }
@@ -1547,13 +1535,13 @@ export async function processInboundWebhook(
         }
         cartMsg += "─────────────────────────\n";
         cartMsg += `💰 *Subtotal: Rp ${Number(tempData.subtotal).toLocaleString('id-ID')}* (${tempData.total_items} item)\n\n`;
-        cartMsg += "Klik *Tambah Menu Lain* untuk menambah menu, atau *✅ Selesai & Lanjut* untuk proses pesanan:";
+        cartMsg += "Ketik menu lain untuk menambah, atau ketik *SELESAI* untuk proses pesanan:";
 
-        await sendMsg(phone, cartMsg, { replyMarkup: buildCartKeyboard() });
+        await sendMsg(phone, cartMsg);
         return { status: true, message: 'Cart displayed', replies };
       }
 
-      // 3. Cek jika user klik "🗑️ Kosongkan Keranjang"
+      // 3. Cek jika user ketik "kosongkan keranjang"
       if (cleanLower.includes('kosongkan')) {
         tempData.items = [];
         tempData.subtotal = 0;
@@ -1564,22 +1552,19 @@ export async function processInboundWebhook(
 
         await sendMsg(
           phone,
-          "🗑️ Keranjang telah dikosongkan.\nSilakan klik menu di bawah untuk memilih pesanan baru:",
-          { replyMarkup: buildMenuKeyboard(availableMenus, 0) }
+          "🗑️ Keranjang telah dikosongkan.\nSilakan ketik menu baru yang ingin dipesan (atau ketik *MENU* untuk katalog):"
         );
         return { status: true, message: 'Cart cleared', replies };
       }
 
-      // 4. Cek jika user klik "📋 Katalog Lengkap"
-      if (cleanLower.includes('katalog lengkap')) {
+      // 4. Cek jika user ketik "katalog" / "menu"
+      if (cleanLower.includes('katalog lengkap') || cleanLower === 'katalog') {
         const catalog = await getFormattedMenuForBot();
-        await sendMsg(phone, catalog, {
-          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
-        });
+        await sendMsg(phone, catalog);
         return { status: true, message: 'Full catalog sent in ordering', replies };
       }
 
-      // 5. Cek jika user klik tombol menu (misal: "🍽️ M1. Ayam Geprek..." atau ketik "M1")
+      // 5. Cek jika user input nama / kode menu (misal: "M1" atau "Ayam Geprek")
       const cleanTextNoEmoji = text.replace(/🍽️/g, '').trim();
       const matchedMenu = availableMenus.find((m) => {
         const codeUpper = m.code.toUpperCase();
@@ -1610,10 +1595,10 @@ export async function processInboundWebhook(
         if (matchedMenu.description) {
           porsiMsg += `_${matchedMenu.description}_\n`;
         }
-        porsiMsg += `\nBerapa porsi yang ingin kakak pesan?\nSilakan **klik tombol jumlah porsi** di bawah:`;
+        porsiMsg += `\nBerapa porsi yang ingin kakak pesan? (Balas dengan angka porsi, contoh: *1* atau *2*):`;
 
-        await sendMsg(phone, porsiMsg, { replyMarkup: buildQuantityKeyboard(matchedMenu.name) });
-        return { status: true, message: 'Quantity keyboard sent', replies };
+        await sendMsg(phone, porsiMsg);
+        return { status: true, message: 'Quantity prompt sent', replies };
       }
 
       // 6. Coba deteksi pesanan bahasa alami dengan AI Groq
@@ -1622,6 +1607,7 @@ export async function processInboundWebhook(
           userMessage: text,
           customerName: data.pushName,
           configs,
+          phone,
         });
 
         if (parsedOrder && parsedOrder.isOrderIntent && parsedOrder.items.length > 0) {
@@ -1652,9 +1638,7 @@ export async function processInboundWebhook(
         session.state = 'ORDERING_ITEMS';
         session.markModified('tempData');
         await session.save();
-        await sendMsg(phone, "Silakan klik menu yang ingin dipesan:", {
-          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
-        });
+        await sendMsg(phone, "Silakan ketik nama menu yang ingin dipesan:");
         return { status: true, message: 'Back to menu list from qty', replies };
       }
 
@@ -1665,7 +1649,7 @@ export async function processInboundWebhook(
           cartMsg += `• ${it.menuName} (${it.quantity}x @ Rp ${Number(it.price).toLocaleString('id-ID')}) = *Rp ${Number(it.subtotal).toLocaleString('id-ID')}*\n`;
         }
         cartMsg += `Subtotal: *Rp ${Number(tempData.subtotal || 0).toLocaleString('id-ID')}*\n`;
-        await sendMsg(phone, cartMsg, { replyMarkup: buildCartKeyboard() });
+        await sendMsg(phone, cartMsg);
         return { status: true, message: 'Cart shown from qty', replies };
       }
 
@@ -1679,9 +1663,7 @@ export async function processInboundWebhook(
         session.state = 'ORDERING_ITEMS';
         session.markModified('tempData');
         await session.save();
-        await sendMsg(phone, "⚠️ Silakan pilih menu di bawah ini:", {
-          replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length),
-        });
+        await sendMsg(phone, "⚠️ Silakan ketik menu yang ingin dipesan (ketik *MENU* untuk katalog):");
         return { status: true, message: 'Menu not found in qty step', replies };
       }
 
@@ -1701,10 +1683,50 @@ export async function processInboundWebhook(
       }
 
       if (!chosenType) {
+        // Coba cek jika pelanggan menanyakan info atau merubah/menambah pesanan dengan AI
+        try {
+          const parsedOrder = await parseOrderWithGroq({
+            userMessage: text,
+            customerName: data.pushName,
+            configs,
+            phone,
+          });
+          if (
+            parsedOrder &&
+            parsedOrder.isOrderIntent &&
+            (parsedOrder.items.length > 0 || parsedOrder.orderType || parsedOrder.tableNumber || parsedOrder.deliveryAddress)
+          ) {
+            const aiOrderRes = await applyParsedOrderToSession({
+              phone,
+              parsedOrder,
+              session,
+              tempData,
+              pushName: data.pushName,
+              sendMsg,
+            });
+            return { ...aiOrderRes, replies };
+          }
+        } catch {}
+
+        try {
+          const aiReply = await askGroqChatbot({
+            userMessage: text,
+            customerName: data.pushName,
+            configs,
+            phone,
+          });
+          if (aiReply) {
+            await sendMsg(
+              phone,
+              `${aiReply}\n\n─────────────────────────\nSilakan balas pilihan tipe pesanan kakak (1: Dine-In, 2: Takeaway, 3: Delivery):`
+            );
+            return { status: true, message: 'AI Q&A handled in ORDERING_TYPE', replies };
+          }
+        } catch {}
+
         await sendMsg(
           phone,
-          `⚠️ Silakan klik salah satu tombol tipe pesanan di bawah:`,
-          { keyboard: 'order_type' }
+          `⚠️ Silakan balas pilihan tipe pesanan kakak (1: Dine-In, 2: Takeaway, 3: Delivery):`
         );
         return { status: true, message: 'Invalid order type selection', replies };
       }
@@ -1720,8 +1742,7 @@ export async function processInboundWebhook(
         tempData.customer_name = data.pushName || data.username || 'Pelanggan';
         await sendMsg(
           phone,
-          `🍽️ *Makan di Tempat (Dine-In)*\nPemesan: *${tempData.customer_name}*\n\nSilakan **klik nomor meja kakak** di bawah ini:`,
-          { replyMarkup: buildTableKeyboard() }
+          `🍽️ *Makan di Tempat (Dine-In)*\nPemesan: *${tempData.customer_name}*\n\nSilakan ketik nomor meja kakak (contoh: *Meja 03*):`
         );
       } else if (chosenType === 'takeaway') {
         const custName = data.pushName || data.username || 'Pelanggan';
@@ -1753,16 +1774,15 @@ export async function processInboundWebhook(
         summary += `─────────────────────────\n`;
         summary += `💰 *TOTAL BAYAR: Rp ${Number(tempData.grand_total).toLocaleString('id-ID')}*\n`;
         summary += `═════════════════════════\n\n`;
-        summary += `Klik tombol **✅ YA, Buat Pesanan** di bawah untuk langsung proses ke dapur & bayar QRIS / Kasir:`;
+        summary += `Ketik *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
 
-        await sendMsg(phone, summary, { keyboard: 'express_confirm' });
+        await sendMsg(phone, summary);
         return { status: true, message: 'Takeaway fast confirmed with telegram name', replies };
       } else {
         tempData.customer_name = data.pushName || data.username || 'Pelanggan';
         await sendMsg(
           phone,
-          `🛵 *Pesan Antar (Delivery)*\nPemesan: *${tempData.customer_name}*\n\nSilakan klik tombol **📍 Kirim Lokasi GPS Saya** di bawah untuk membagikan alamat otomatis, atau ketik alamat pengiriman manual:`,
-          { replyMarkup: buildDeliveryLocationKeyboard() }
+          `🛵 *Pesan Antar (Delivery)*\nPemesan: *${tempData.customer_name}*\n\nSilakan ketik alamat pengiriman kakak ya:`
         );
       }
       return { status: true, message: 'Order type chosen', replies };
@@ -1812,9 +1832,9 @@ export async function processInboundWebhook(
           summary += `─────────────────────────\n`;
           summary += `💰 *TOTAL BAYAR: Rp ${Number(tempData.grand_total).toLocaleString('id-ID')}*\n`;
           summary += `═════════════════════════\n\n`;
-          summary += `Klik tombol **✅ YA, Buat Pesanan** di bawah untuk langsung proses ke dapur & bayar QRIS / Kasir:`;
+          summary += `Ketik *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
 
-          await sendMsg(phone, summary, { keyboard: 'express_confirm' });
+          await sendMsg(phone, summary);
           return { status: true, message: 'Dine-in table set, jumped to confirm', replies };
         }
       } else if (oType === 'takeaway') {
@@ -1853,9 +1873,9 @@ export async function processInboundWebhook(
           summary += `Ongkir: *Rp 10.000*\n`;
           summary += `💰 *TOTAL BAYAR: Rp ${Number(tempData.grand_total).toLocaleString('id-ID')}*\n`;
           summary += `═════════════════════════\n\n`;
-          summary += `Klik tombol **✅ YA, Buat Pesanan** di bawah untuk langsung proses ke dapur & bayar QRIS / Kasir:`;
+          summary += `Ketik *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
 
-          await sendMsg(phone, summary, { keyboard: 'express_confirm' });
+          await sendMsg(phone, summary);
           return { status: true, message: 'Delivery address set, jumped to confirm', replies };
         }
       }
@@ -1865,8 +1885,8 @@ export async function processInboundWebhook(
       session.markModified('tempData');
       await session.save();
 
-      let notePrompt = `📝 Ada *catatan khusus* untuk pesanan ini?\n(Contoh: *Sambal dipisah, es sedikit, tanpa daun bawang*).\n\nSilakan **klik salah satu opsi catatan cepat** di bawah:`;
-      await sendMsg(phone, notePrompt, { replyMarkup: buildQuickNotesKeyboard() });
+      let notePrompt = `📝 Ada *catatan khusus* untuk pesanan ini?\n(Contoh: *Sambal dipisah, es sedikit, tanpa daun bawang*).\n\nKetik catatan kakak (atau balas *-* jika tanpa catatan):`;
+      await sendMsg(phone, notePrompt);
       return { status: true, message: 'Name/address received, prompt notes', replies };
     }
 
@@ -1920,9 +1940,9 @@ export async function processInboundWebhook(
       summary += `💰 *TOTAL BAYAR: Rp ${grandTotal.toLocaleString('id-ID')}*\n`;
       summary += "═════════════════════════\n\n";
       summary += "Apakah data pesanan di atas sudah benar?\n";
-      summary += "Silakan klik tombol **✅ YA, Buat Pesanan** di bawah untuk memproses pembayaran:";
+      summary += "Ketik *YA* atau *OKE* untuk memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:";
 
-      await sendMsg(phone, summary, { keyboard: 'confirm' });
+      await sendMsg(phone, summary);
       return { status: true, message: 'Summary sent', replies };
     }
 
@@ -1931,14 +1951,12 @@ export async function processInboundWebhook(
 
       // Tambah menu lain dari layar konfirmasi
       if (confirmLower.includes('tambah') || confirmLower.includes('tambah menu')) {
-        const availableMenus = await Menu.find({ isAvailable: true }).sort({ code: 1 });
         session.state = 'ORDERING_ITEMS';
         session.markModified('tempData');
         await session.save();
         await sendMsg(
           phone,
-          `Silakan klik menu yang ingin ditambah, atau ketik langsung (contoh: *Es Teh 1*):`,
-          { replyMarkup: buildMenuKeyboard(availableMenus, (tempData.items || []).length) }
+          `Silakan ketik menu yang ingin ditambah (contoh: *Es Teh 1*):`
         );
         return { status: true, message: 'Back to ordering items from confirm', replies };
       }
@@ -1960,6 +1978,7 @@ export async function processInboundWebhook(
             userMessage: text,
             customerName: data.pushName,
             configs,
+            phone,
           });
           if (parsedOrder && parsedOrder.isOrderIntent && parsedOrder.items.length > 0) {
             const aiOrderRes = await applyParsedOrderToSession({
@@ -1978,8 +1997,7 @@ export async function processInboundWebhook(
 
         await sendMsg(
           phone,
-          `⚠️ Mohon klik **✅ YA, Buat Pesanan** jika sudah benar, **➕ Tambah Menu** untuk menambah item, atau **❌ Batal** untuk membatalkan.`,
-          { keyboard: 'express_confirm' }
+          `⚠️ Mohon balas *YA* jika sudah benar, ketik menu tambahan untuk menambah, atau *BATAL* untuk membatalkan.`
         );
         return { status: true, message: 'Waiting valid confirm', replies };
       }

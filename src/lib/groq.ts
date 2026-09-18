@@ -1,6 +1,7 @@
 import { BotConfigMap, getBotConfigs } from './wablas';
 import { connectDB } from './db';
 import Menu from '@/models/Menu';
+import BotLog from '@/models/BotLog';
 
 export function getGroqApiKey(configs?: BotConfigMap): string {
   return (
@@ -29,16 +30,57 @@ export interface GroqChatOptions {
   userMessage: string;
   customerName?: string;
   configs?: BotConfigMap;
+  phone?: string;
+}
+
+/**
+ * Fetch recent conversation history from BotLog for multi-turn conversational memory
+ */
+async function getRecentChatHistory(
+  phone?: string,
+  limit: number = 6
+): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  if (!phone) return [];
+  try {
+    await connectDB();
+    const recentLogs = await BotLog.find({
+      phone,
+      messageBody: { $exists: true, $ne: '' },
+    })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    const chronological = recentLogs.reverse();
+
+    for (const log of chronological) {
+      if (!log.messageBody || typeof log.messageBody !== 'string') continue;
+      const trimmed = log.messageBody.trim();
+      if (!trimmed || log.messageType === 'error') continue;
+
+      // Truncate long catalog dumps or system notices to prevent token blowup
+      const cleanContent = trimmed.length > 300 ? trimmed.slice(0, 300) + '...' : trimmed;
+      history.push({
+        role: log.direction === 'inbound' ? 'user' : 'assistant',
+        content: cleanContent,
+      });
+    }
+    return history;
+  } catch (err) {
+    return [];
+  }
 }
 
 /**
  * Ask Groq LLM to respond to a customer's question intelligently,
- * injecting live restaurant info and available menu catalog from database.
+ * injecting live restaurant info, multi-turn chat memory, and available menu catalog.
  */
 export async function askGroqChatbot({
   userMessage,
   customerName,
   configs,
+  phone,
 }: GroqChatOptions): Promise<string | null> {
   const cfg = configs || (await getBotConfigs());
   if (!isGroqEnabled(cfg)) {
@@ -68,27 +110,34 @@ export async function askGroqChatbot({
     const storeGmaps = cfg.store_gmaps || '';
     const bankInfo = cfg.bank_info || 'Menerima pembayaran QRIS, Virtual Account, dan E-Wallet (via Xendit)';
 
-    const systemPrompt = `Kamu adalah asisten virtual dan customer service cerdas dari "${storeName}".
-Tugasmu adalah menjawab pertanyaan pelanggan dengan ramah, ramah tamah, sopan santun khas Indonesia, membantu mereka memilih menu, memberi rekomendasi, dan menjelaskan informasi seputar restoran.
+    const systemPrompt = `Kamu adalah asisten virtual dan customer service pintar dari "${storeName}".
+Tugasmu adalah menjawab pertanyaan pelanggan dengan sangat ramah, hangat, sopan santun khas Indonesia, membantu memilih menu, memberi rekomendasi, dan menjelaskan informasi seputar restoran.
 
 Profil & Informasi Restoran:
 - Nama Resto: ${storeName}
 - Alamat: ${storeAddress}
 ${storeGmaps ? `- Google Maps: ${storeGmaps}` : ''}
 - Jam Operasional: ${storeHours}
-- Metode Pembayaran: Tersedia pembayaran otomatis instan via QRIS, Virtual Account Bank (BCA, BNI, BRI, Mandiri, Permata), dan E-Wallet (OVO, DANA, ShopeePay) yang terintegrasi langsung dengan Xendit, atau Tunai.
-- Cara Pesan: Pelanggan bisa langsung klik tombol menu "🛒 Pesan (ORDER)" pada keyboard chat bot untuk memilih porsi dan checkout otomatis.
+- Metode Pembayaran: Menerima QRIS, Virtual Account Bank (BCA, BNI, BRI, Mandiri, Permata), E-Wallet (OVO, DANA, ShopeePay) via Xendit, atau Tunai.
+- Fitur Pesan Cepat AI: Beritahu pelanggan bahwa mereka bisa langsung memesan dengan mengetik santai dalam 1 kalimat (contoh: "Pesen Kopi Aren 2 meja 3" atau "Pesan Ayam Bakar dibawa pulang alamat di Jalan Melati no 4"). Sistem kami akan langsung membuatkan invoice dan proses ke dapur!
 
-Daftar Menu & Harga Saat Ini (dari Database):
+Daftar Menu & Harga Resmi Saat Ini:
 ${menuSummary || '(Semua menu sedang dalam pembaruan sistem)'}
 
-Panduan Gaya Bicara:
+Panduan Sikap & Komunikasi:
 1. Panggil pelanggan dengan sopan menggunakan "Kak" atau "Kak ${customerName || ''}".
-2. Jawab pertanyaan dengan ramah, jelas, dan ringkas (hindari jawaban yang terlalu panjang atau berbelit-belit).
-3. Jika ditanya rekomendasi makanan/minuman, pilih dari menu di atas dan jelaskan singkat mengapa menu itu enak/populer.
-4. Jangan merekomendasikan menu yang tidak ada di daftar menu di atas.
-5. Jika pelanggan ingin memesan atau menanyakan cara order, ingatkan mereka bahwa mereka cukup mengklik tombol "🛒 Pesan (ORDER)" di menu bawah chat.
-6. Format jawaban menggunakan Markdown rapi dengan emoji yang pas (misal 🍽️, 🍗, 🥤, ✨).`;
+2. Jawab pertanyaan dengan ramah, komunikatif, solutif, dan ringkas (tidak bertele-tele).
+3. Jika ditanya rekomendasi makanan/minuman, berikan saran dari daftar menu di atas dan jelaskan keunggulannya. Jangan merekomendasikan menu di luar daftar di atas.
+4. Jika pelanggan ingin memesan, dorong mereka untuk langsung mengetik pesanannya atau klik menu keyboard di bawah chat.
+5. Format jawaban rapi dengan Markdown dan emoji yang menarik (🍽️, 🍗, 🥤, ✨, 😊).`;
+
+    // Ambil histori percakapan sebelumnya untuk memori multi-turn
+    const recentHistory = await getRecentChatHistory(phone, 6);
+
+    // Filter pesan terakhir agar tidak duplikat dengan userMessage saat ini
+    const filteredHistory = recentHistory.filter(
+      (h, idx) => !(idx === recentHistory.length - 1 && h.role === 'user' && h.content.trim() === userMessage.trim())
+    );
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 seconds max
@@ -103,6 +152,7 @@ Panduan Gaya Bicara:
         model: model,
         messages: [
           { role: 'system', content: systemPrompt },
+          ...filteredHistory,
           { role: 'user', content: userMessage },
         ],
         temperature: 0.7,
@@ -116,7 +166,6 @@ Panduan Gaya Bicara:
     if (!response.ok) {
       const errText = await response.text();
       console.error('[Groq] Chat completions error:', response.status, errText);
-      // Fallback to secondary model if primary model fails
       if (model !== 'qwen/qwen3.8-27b') {
         return askGroqFallback({ userMessage, systemPrompt, apiKey, model: 'qwen/qwen3.8-27b' });
       }
@@ -191,12 +240,14 @@ export interface ParsedOrderResult {
 
 /**
  * Intelligent Natural Language Order Parser powered by Groq LLM.
- * Extracts order intent, menu items, quantities, custom notes, order type, and table number.
+ * Extracts order intent, menu items, quantities, custom notes, order type, and table/delivery details.
+ * Features advanced disambiguation for mixed intent, colloquial Indonesian numbers, and few-shot guidance.
  */
 export async function parseOrderWithGroq({
   userMessage,
   customerName,
   configs,
+  phone,
 }: GroqChatOptions): Promise<ParsedOrderResult | null> {
   const cfg = configs || (await getBotConfigs());
   if (!isGroqEnabled(cfg)) {
@@ -222,54 +273,116 @@ export async function parseOrderWithGroq({
 
     const storeName = cfg.store_name || 'Leafly Resto';
 
-    const systemPrompt = `Kamu adalah AI Kasir & Waiter restoran "${storeName}".
-Tugasmu adalah menganalisis pesan pelanggan (${customerName ? `bernama Kak ${customerName}` : 'pelanggan'}) dan mengekstrak rincian pesanan ke dalam format JSON.
+    const systemPrompt = `Kamu adalah AI Kasir & Waiter cerdas restoran "${storeName}".
+Tugas utamamu adalah menganalisis pesan pelanggan (${customerName ? `bernama Kak ${customerName}` : 'pelanggan'}) secara akurat dan mengekstrak rincian pesanan ke dalam format JSON terstruktur.
 
-Daftar Menu Restoran yang Tersedia (Kode, Nama, Harga):
+Daftar Menu Restoran yang Tersedia Saat Ini (Kode, Nama, Harga):
 ${menuCatalog}
 
-Instruksi Analisis:
-1. isOrderIntent: 
-   - TRUE jika pelanggan bermaksud memesan/order makanan/minuman (misal: "pesen kopi aren 2", "mau order ayam geprek pedes 1", "es teh 2 di meja 4", "bungkus nasi goreng", "pesan M1 2").
-   - FALSE jika pelanggan HANYA menyapa ("halo", "p"), bertanya info resto ("buka jam berapa?", "rekomendasi apa ya?"), komplain, atau minta bantuan admin.
+Panduan Analisis & Ekstraksi Pesanan:
+1. isOrderIntent (boolean):
+   - Nilai TRUE jika pelanggan bermaksud memesan/order makanan/minuman (misal: "pesan ayam bakar...", "order kopi aren 2", "minta es teh 1", "bungkus nasi goreng", "pesan M1 2", "kirim ayam geprek ke jalan merdeka").
+   - Nilai FALSE jika pelanggan HANYA menyapa ("halo", "hai", "p"), bertanya info ("buka jam berapa?", "rekomendasi apa ya?"), komplain, atau minta bantuan admin.
 
-2. items: Ekstrak daftar menu yang dipesan:
-   - menuCode: Kode resmi dari daftar menu di atas (misal "M1", "D2"). Wajib cocokkan ke menu paling relevan. Jika nama mirip/sinonim (misal "kopi aren" -> Kopi Susu Aren, "geprek" -> Ayam Geprek), gunakan kode resminya.
+2. items (array):
+   - menuCode: Kode resmi dari daftar menu di atas (misal "M1", "D2"). Wajib cocokkan ke menu paling relevan.
    - menuName: Nama resmi menu dari daftar di atas.
-   - quantity: Jumlah porsi (integer, minimal 1). Jika disebutkan kata "satu/dua/tiga" ubah ke angka 1, 2, 3.
-   - notes: Catatan khusus per menu (misal: "pedes banget", "less sugar", "es sedikit", "sambal dipisah", "panas"). Kosongkan "" jika tidak ada.
+   - quantity: Jumlah porsi (integer minimal 1).
+     * Jika pelanggan menyebut kata: "seporsi", "sebungkus", "segelas", "secangkir", "sebotol", "satu", "1" -> quantity: 1.
+     * Jika menyebut: "dua", "2", "3", dst -> isi sesuai angka.
+     * PENTING: Jika pelanggan TIDAK MENYEBUTKAN ANGKA (misal: "pesan ayam bakar"), DEFAULT BERI quantity: 1.
+   - notes: Catatan khusus per menu (misal: "pedas manis", "level 5", "tanpa sambal", "es sedikit", "less sugar", "hangat", "kuah dipisah", "tanpa bawang"). Kosongkan "" jika tidak ada.
 
-3. orderType:
-   - "dine_in" jika ada kata meja, "di tempat", "di sini", "dine in", "makan di sini".
-   - "takeaway" jika ada kata "bungkus", "takeaway", "bawa pulang".
-   - "delivery" jika ada kata "antar", "kirim", "delivery", atau menyebut alamat.
-   - null jika belum disebutkan.
+3. orderType (string: "dine_in" | "takeaway" | "delivery" | null):
+   - ATURAN RESOLUSI AMBIGUITAS & KONFLIK KATA:
+     * PRIORITAS DELIVERY (Pesan Antar): Jika pelanggan menyebutkan ALAMAT PENGIRIMAN ("alamat di ...", "ke jalan ...", "antar ke ...", "kirim ke ...", "ke perumahan ...", "ke kost ..."), MESKIPUN PELANGGAN MENYEBUT KATA "DI BAWA PULANG" ATAU "BUNGKUS" (misal: "pesan ayam bakar di bawa pulang alamat di xxx"), MAKA TETAPKAN orderType = "delivery" dan isi deliveryAddress dengan alamat tersebut. Karena pelanggan bermaksud dibungkus untuk dikirim ke alamat itu.
+     * PRIORITAS TAKEAWAY (Bungkus Ambil Sendiri): Jika pelanggan menyebut "bungkus", "takeaway", "bawa pulang" TANPA menyebut alamat pengiriman, tetapkan orderType = "takeaway".
+     * PRIORITAS DINE_IN (Makan di Tempat): Jika pelanggan menyebut nomor meja ("meja 4", "meja 02", "table 3"), "makan di sini", "di tempat", tetapkan orderType = "dine_in".
+     * null jika belum menyebutkan jenis pesanan apapun.
 
-4. tableNumber:
-   - Jika orderType "dine_in" dan pelanggan menyebut nomor meja (misal "meja 4", "meja 04", "table 2", "di meja 3"), ekstrak nomor mejanya (format standar: "MEJA 04" atau "MEJA 2").
-   - null jika belum menyebut nomor meja.
+4. tableNumber (string | null):
+   - Jika orderType "dine_in" dan pelanggan menyebut nomor meja, ekstrak dalam format standar: "MEJA 01", "MEJA 04", dsb.
+   - null jika bukan dine-in atau belum menyebut nomor meja.
 
-5. deliveryAddress:
-   - Alamat tujuan pengiriman jika delivery, atau null jika tidak ada.
+5. deliveryAddress (string | null):
+   - Jika orderType "delivery" dan ada alamat (misal "alamat di jalan mawar no 12"), ekstrak alamatnya ke field ini.
+   - null jika tidak ada alamat.
 
-6. notes:
-   - Catatan umum pesanan jika ada, atau null.
+6. notes (string | null):
+   - Catatan umum keseluruhan pesanan jika ada, atau null.
 
-7. aiFriendlySummary:
-   - Kalimat konfirmasi ramah ala waiter restoran yang menyapa Kak ${customerName || ''}, merincikan pesanan dan meja/tipe secara hangat dan ringkas dengan emoji ramah.
+7. aiFriendlySummary (string):
+   - Kalimat konfirmasi ramah ala kasir resto yang menyapa Kak ${customerName || ''}, merincikan pesanan, meja/alamat dengan hangat, antusias, dan diberi emoji relevan (🍽️, ✨, 🛵, 👍).
 
-Format output WAJIB HANYA JSON valid tanpa markdown/backticks/teks lain:
+Contoh Analisis Kasus Nyata (Few-Shot Examples):
+---
+Contoh 1 (Delivery dengan alamat & kata bawa pulang):
+Input: "pesan ayam bakar di bawa pulang alamat di jalan mawar no 12 surabaya"
+Output:
+{
+  "isOrderIntent": true,
+  "items": [{ "menuCode": "M1", "menuName": "Ayam Bakar", "quantity": 1, "notes": "" }],
+  "orderType": "delivery",
+  "tableNumber": null,
+  "deliveryAddress": "jalan mawar no 12 surabaya",
+  "notes": null,
+  "aiFriendlySummary": "Siap Kak! 1 porsi Ayam Bakar untuk diantar ke Jalan Mawar No 12 Surabaya sudah kami catat dengan senang hati 🛵✨"
+}
+---
+Contoh 2 (Dine-in dengan nomor meja dan catatan custom):
+Input: "pesen kopi aren 2 es sedikit sama ayam geprek 1 pedes banget makan di meja 4"
+Output:
 {
   "isOrderIntent": true,
   "items": [
-    { "menuCode": "M1", "menuName": "Ayam Geprek", "quantity": 2, "notes": "Pedes" }
+    { "menuCode": "D1", "menuName": "Kopi Susu Aren", "quantity": 2, "notes": "Es sedikit" },
+    { "menuCode": "M2", "menuName": "Ayam Geprek Sambal Bawang + Nasi", "quantity": 1, "notes": "Pedes banget" }
   ],
   "orderType": "dine_in",
   "tableNumber": "MEJA 04",
   "deliveryAddress": null,
   "notes": null,
-  "aiFriendlySummary": "Siap Kak! Pesanan untuk Meja 04 sudah kami catat..."
-}`;
+  "aiFriendlySummary": "Baik Kak! 2 Kopi Susu Aren (es sedikit) dan 1 Ayam Geprek (pedes banget) untuk Meja 04 sudah kami catat ya 🍽️"
+}
+---
+Contoh 3 (Takeaway bungkus tanpa alamat):
+Input: "bungkus nasi goreng 2 porsi jangan pake telur"
+Output:
+{
+  "isOrderIntent": true,
+  "items": [{ "menuCode": "M3", "menuName": "Nasi Goreng Spesial UMKM", "quantity": 2, "notes": "Jangan pake telur" }],
+  "orderType": "takeaway",
+  "tableNumber": null,
+  "deliveryAddress": null,
+  "notes": null,
+  "aiFriendlySummary": "Siap Kak! 2 porsi Nasi Goreng Spesial (tanpa telur) bungkus bawa pulang sudah kami siapkan 👍"
+}
+---
+Contoh 4 (Bukan pesanan / tanya rekomendasi):
+Input: "rekomendasi makanan yang pedas apa ya kak?"
+Output:
+{
+  "isOrderIntent": false,
+  "items": [],
+  "orderType": null,
+  "tableNumber": null,
+  "deliveryAddress": null,
+  "notes": null,
+  "aiFriendlySummary": ""
+}
+
+Format output WAJIB HANYA JSON valid tanpa markdown/backticks/teks lain:`;
+
+    // Sertakan konteks chat singkat jika tersedia
+    const recentHistory = await getRecentChatHistory(phone, 3);
+    const messagesPayload: any[] = [{ role: 'system', content: systemPrompt }];
+
+    if (recentHistory.length > 0) {
+      for (const h of recentHistory) {
+        messagesPayload.push(h);
+      }
+    }
+    messagesPayload.push({ role: 'user', content: userMessage });
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s max
@@ -283,10 +396,7 @@ Format output WAJIB HANYA JSON valid tanpa markdown/backticks/teks lain:
       },
       body: JSON.stringify({
         model: model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
+        messages: messagesPayload,
         response_format: { type: 'json_object' },
         temperature: 0.1,
         max_tokens: 600,
@@ -318,7 +428,6 @@ Format output WAJIB HANYA JSON valid tanpa markdown/backticks/teks lain:
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
-      // Try to clean potential trailing comma or control chars
       const sanitized = jsonMatch[0]
         .replace(/,\s*([\]}])/g, '$1')
         .replace(/[\u0000-\u001F]+/g, ' ');
@@ -348,11 +457,25 @@ Format output WAJIB HANYA JSON valid tanpa markdown/backticks/teks lain:
       const targetCode = String(rawItem.menuCode || '').toUpperCase().trim();
       const targetName = String(rawItem.menuName || '').toLowerCase().trim();
 
-      // Find matching menu in database
+      // Find matching menu in database with smart fuzzy logic
       const matchedMenu = activeMenus.find((m: any) => {
-        if (targetCode && m.code.toUpperCase() === targetCode) return true;
-        if (targetName && m.name.toLowerCase() === targetName) return true;
-        if (targetName && (m.name.toLowerCase().includes(targetName) || targetName.includes(m.name.toLowerCase()))) return true;
+        const mCode = (m.code || '').toUpperCase().trim();
+        const mName = (m.name || '').toLowerCase().trim();
+
+        if (targetCode && mCode === targetCode) return true;
+        if (targetName && mName === targetName) return true;
+        if (targetName && (mName.includes(targetName) || targetName.includes(mName))) return true;
+
+        // Word token overlap matching (e.g. "ayam bakar" matches "Ayam Bakar Madu")
+        const targetWords = targetName.split(/\s+/).filter((w) => w.length > 2);
+        const menuWords = mName.split(/\s+/);
+        if (
+          targetWords.length > 0 &&
+          targetWords.every((tw) => menuWords.some((mw: string) => mw.includes(tw) || tw.includes(mw)))
+        ) {
+          return true;
+        }
+
         return false;
       });
 
