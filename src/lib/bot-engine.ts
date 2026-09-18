@@ -223,7 +223,7 @@ async function handleAddSingleItemToCart(
     await session.save();
     await sendMsg(
       phone,
-      `⚠️ Maaf kak, menu *${menu.name}* saat ini sedang habis (Stok: 0). Silakan pilih menu lainnya (ketik *MENU* untuk katalog):`
+      `Waduh maaf ya Kak, menu *${menu.name}* kebetulan stoknya lagi habis nih 🥺 Mau coba menu lainnya Kak? (Bisa ketik *MENU* untuk lihat daftar yang ready yaa)`
     );
     return { status: true, message: 'Out of stock', replies };
   }
@@ -231,7 +231,7 @@ async function handleAddSingleItemToCart(
   if (menu.trackStock && qty > currentStock) {
     await sendMsg(
       phone,
-      `⚠️ Maaf kak, stok untuk *${menu.name}* hanya tersisa *${currentStock}* porsi. Silakan ketik jumlah porsi yang diinginkan:`
+      `Untuk *${menu.name}*, stok di dapur tinggal sisa *${currentStock}* porsi lagi nih Kak. Mau pesan berapa porsi Kak? 😊`
     );
     return { status: true, message: 'Stock exceeded', replies };
   }
@@ -262,9 +262,9 @@ async function handleAddSingleItemToCart(
   session.markModified('tempData');
   await session.save();
 
-  let confirmMsg = `✅ *${qty}x ${menu.name}* dimasukkan ke keranjang!\n`;
+  let confirmMsg = `Sip Kak, *${qty}x ${menu.name}* udah masuk keranjang ya! 👍\n`;
   confirmMsg += `🛒 Total Keranjang: *${tempData.total_items} item* (Rp ${Number(tempData.subtotal).toLocaleString('id-ID')})\n\n`;
-  confirmMsg += `Ketik menu lain untuk menambah, atau ketik *SELESAI* jika pesanan sudah cukup.`;
+  confirmMsg += `Mau nambah menu lain atau langsung diproses nih Kak? Ketik menu berikutnya, atau ketik *SELESAI* kalau udah cukup yaa 😊`;
 
   await sendMsg(phone, confirmMsg);
   return { status: true, message: 'Item added to cart', replies };
@@ -299,11 +299,11 @@ async function handleProcessOrderItems(
       if (menu) {
         const availableStock = menu.stock !== undefined ? menu.stock : 50;
         if (menu.trackStock && availableStock <= 0) {
-          stockErrors.push(`• *${menu.name}* (${code}): Stok Habis ❌`);
+          stockErrors.push(`• *${menu.name}*: stoknya kebetulan lagi habis nih Kak 🥺`);
           continue;
         }
         if (menu.trackStock && qty > availableStock) {
-          stockErrors.push(`• *${menu.name}* (${code}): Sisa stok hanya *${availableStock}* porsi (dipesan: ${qty}) ⚠️`);
+          stockErrors.push(`• *${menu.name}*: sisa di dapur tinggal *${availableStock}* porsi lagi nih Kak (tadi Kakak pesan ${qty})`);
           continue;
         }
 
@@ -328,9 +328,9 @@ async function handleProcessOrderItems(
   }
 
   if (stockErrors.length > 0 && parsedItems.length === 0) {
-    let msg = "⚠️ *Maaf kak, item yang dipesan tidak dapat diproses karena kendala stok:*\n";
+    let msg = "Yah maaf banget ya Kak 🙏 Untuk menu yang Kakak mau kebetulan stoknya lagi ada kendala nih:\n\n";
     msg += stockErrors.join('\n') + '\n\n';
-    msg += "Ketik *MENU* untuk melihat daftar menu dan stok yang tersedia, atau ketik *BATAL* untuk keluar.";
+    msg += "Mau coba pilih menu lainnya Kak? Kakak bisa ketik *MENU* untuk intip daftar yang masih ready yaa 😊";
     await sendMsg(phone, msg);
     return { status: true, message: 'Stock not available' };
   }
@@ -371,7 +371,7 @@ async function handleProcessOrderItems(
       if (aiReply) {
         let replyWithHelp = `${aiReply}\n\n`;
         replyWithHelp += `─────────────────────────\n`;
-        replyWithHelp += `💡 _Ketik nama menu yang ingin dipesan (atau ketik *MENU* untuk katalog):_`;
+        replyWithHelp += `💡 _Ketik nama menu yang mau dipesan (atau ketik *MENU* untuk lihat katalog yaa):_`;
 
         await sendMsg(phone, replyWithHelp);
         return { status: true, message: 'Groq AI Q&A during ordering' };
@@ -380,11 +380,11 @@ async function handleProcessOrderItems(
       console.error('[BotEngine] Groq AI Q&A error during ordering:', e.message);
     }
 
-    let msg = "⚠️ Maaf kak, kami belum bisa mengenali format pesanan tersebut.\n\n";
-    msg += "💡 *Contoh format yang benar:*\n";
-    msg += "• *M1 2, D1 1* (2 Ayam Geprek, 1 Kopi Aren)\n";
-    msg += "• *Pesen Kopi Aren 2 meja 3*\n\n";
-    msg += "Atau ketik *MENU* untuk melihat katalog lengkap, atau *BATAL* untuk keluar.";
+    let msg = "Maaf ya Kak, aku belum nangkep nih tadi mau pesan apa hehe 😅\n\n";
+    msg += "Kakak bisa langsung ketik santai apa yang mau dipesan, contohnya:\n";
+    msg += "• *Ayam Bakar 2, Es Teh 1*\n";
+    msg += "• *Pesen Kopi Aren 2 di Meja 3*\n\n";
+    msg += "Atau ketik *MENU* dulu ya kalau mau intip daftar lengkapnya 😊";
     await sendMsg(phone, msg);
     return { status: true, message: 'Unrecognized items' };
   }
@@ -398,7 +398,7 @@ async function handleProcessOrderItems(
   session.markModified('tempData');
   await session.save();
 
-  let reply = "✅ *Item Pesanan Dicatat:*\n";
+  let reply = "Sip Kak, pesanannya udah dicatat ya: ✨\n";
   for (const it of parsedItems) {
     const p = 'Rp ' + Number(it.price).toLocaleString('id-ID');
     const s = 'Rp ' + Number(it.subtotal).toLocaleString('id-ID');
@@ -407,19 +407,19 @@ async function handleProcessOrderItems(
   reply += `Subtotal: *Rp ${subtotal.toLocaleString('id-ID')}*\n`;
 
   if (stockErrors.length > 0) {
-    reply += `\n⚠️ *Catatan Stok Dilewati:*\n${stockErrors.join('\n')}\n`;
+    reply += `\n⚠️ _Catatan stok:_\n${stockErrors.join('\n')}\n`;
   }
 
   if (unrecognized.length > 0) {
-    reply += `\n_(Catatan: Kode [${unrecognized.join(', ')}] tidak ditemukan dan dilewati)_\n`;
+    reply += `\n_(Menu [${unrecognized.join(', ')}] kebetulan belum ada di daftar jadi dilewati dulu ya Kak)_\n`;
   }
 
-  reply += "\n═══════════════════════\n";
-  reply += "Selanjutnya, pesanan ini untuk:\n";
-  reply += "1️⃣ *Makan di Tempat (Dine-In)*\n";
-  reply += "2️⃣ *Bungkus (Takeaway)*\n";
-  reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
-  reply += "Balas dengan angka *1*, *2*, atau *3* ya kak.";
+  reply += "\n─────────────────────────\n";
+  reply += "Mau dinikmati di mana nih Kak?\n";
+  reply += "1️⃣ Makan di Tempat (Dine-In)\n";
+  reply += "2️⃣ Bungkus bawa pulang (Takeaway)\n";
+  reply += "3️⃣ Pesan antar ke alamat (Delivery)\n\n";
+  reply += "Ketik *1*, *2*, atau *3* ya Kak 😊";
 
   await sendMsg(phone, reply, { keyboard: 'order_type' });
   return { status: true, message: 'Items parsed and stored' };
@@ -471,11 +471,11 @@ async function applyParsedOrderToSession({
     if (menuDoc && menuDoc.trackStock) {
       const stock = menuDoc.stock !== undefined ? menuDoc.stock : 50;
       if (stock <= 0) {
-        stockErrors.push(`• *${menuDoc.name}*: Stok Habis ❌`);
+        stockErrors.push(`• *${menuDoc.name}*: stoknya kebetulan lagi habis nih Kak 🥺`);
         continue;
       }
       if (it.quantity > stock) {
-        stockErrors.push(`• *${menuDoc.name}*: Sisa stok hanya *${stock}* porsi (dipesan: ${it.quantity}) ⚠️`);
+        stockErrors.push(`• *${menuDoc.name}*: sisa di dapur tinggal *${stock}* porsi lagi nih Kak (tadi dipesan ${it.quantity})`);
         it.quantity = stock;
         it.subtotal = stock * it.price;
       }
@@ -484,9 +484,9 @@ async function applyParsedOrderToSession({
   }
 
   if (finalItems.length === 0) {
-    let err = "⚠️ *Maaf kak, item yang ingin dipesan saat ini stoknya sedang habis:*\n";
+    let err = "Yah maaf banget ya Kak 🙏 Untuk menu yang ingin dipesan kebetulan stoknya lagi habis nih:\n\n";
     err += stockErrors.join('\n') + '\n\n';
-    err += "Ketik *MENU* untuk melihat menu lainnya yang masih tersedia ya kak 😊";
+    err += "Mau coba pilih menu lainnya Kak? Ketik *MENU* untuk intip daftar yang masih ready yaa 😊";
     await sendMsg(phone, err);
     return { status: true, message: 'All items out of stock' };
   }
@@ -528,9 +528,8 @@ async function applyParsedOrderToSession({
     await session.save();
 
     let askTable = parsedOrder.aiFriendlySummary ? `${parsedOrder.aiFriendlySummary}\n\n` : '';
-    askTable += `🍽️ *Catatan Pesanan Tersimpan!*\n`;
-    askTable += `Tinggal 1 langkah lagi: Kakak duduk di **meja nomor berapa** ya?\n`;
-    askTable += `_(Cukup balas nomor mejanya, contoh: **Meja 03**):_`;
+    askTable += `Btw Kakak lagi duduk di **meja nomor berapa** nih biar nanti kita antarkan? 😊\n`;
+    askTable += `_(Cukup balas nomor mejanya aja ya, contoh: *Meja 3*)_`;
 
     await sendMsg(phone, askTable);
     return { status: true, message: 'AI Dine-in waiting for table number' };
@@ -544,17 +543,17 @@ async function applyParsedOrderToSession({
     await session.save();
 
     let reply = parsedOrder.aiFriendlySummary ? `${parsedOrder.aiFriendlySummary}\n\n` : '';
-    reply += "✅ *Item Pesanan Sudah Dicatat:*\n";
+    reply += "Sip, item pesanannya udah dicatat ya: ✨\n";
     for (const it of finalItems) {
       const note = it.notes ? ` _(${it.notes})_` : '';
       reply += `• ${it.quantity}x *${it.menuName}*${note} = *Rp ${Number(it.subtotal).toLocaleString('id-ID')}*\n`;
     }
     reply += `Subtotal: *Rp ${Number(subtotal).toLocaleString('id-ID')}*\n\n`;
-    reply += "Pesanan ini untuk:\n";
-    reply += "1️⃣ *Makan di Tempat (Dine-In)*\n";
-    reply += "2️⃣ *Bungkus (Takeaway)*\n";
-    reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
-    reply += "Silakan balas pilihan tipe pesanan kakak (1 / 2 / 3):";
+    reply += "Mau dinikmati di mana nih Kak?\n";
+    reply += "1️⃣ Makan di Tempat (Dine-In)\n";
+    reply += "2️⃣ Bungkus bawa pulang (Takeaway)\n";
+    reply += "3️⃣ Pesan antar ke alamat (Delivery)\n\n";
+    reply += "Ketik *1*, *2*, atau *3* ya Kak 😊";
 
     await sendMsg(phone, reply);
     return { status: true, message: 'AI order items parsed, asking order type' };
@@ -570,8 +569,8 @@ async function applyParsedOrderToSession({
     await session.save();
 
     let askAddr = parsedOrder.aiFriendlySummary ? `${parsedOrder.aiFriendlySummary}\n\n` : '';
-    askAddr += `🛵 *Pesanan Pesan Antar (Delivery)*\n\n`;
-    askAddr += `Silakan ketik alamat pengiriman kakak ya:`;
+    askAddr += `Siap kita antarkan ke tempat Kakak! 🛵✨\n\n`;
+    askAddr += `Boleh minta alamat lengkap pengirimannya Kak? _(Sertakan patokan kalau ada yaa)_:`;
 
     await sendMsg(phone, askAddr);
     return { status: true, message: 'AI Delivery order waiting for address' };
@@ -603,18 +602,18 @@ async function applyParsedOrderToSession({
       : `Delivery (${tempData.delivery_address})`;
 
   let summary = parsedOrder.aiFriendlySummary ? `${parsedOrder.aiFriendlySummary}\n\n` : '';
-  summary += `🧾 *RINGKASAN PESANAN KAKAK*\n`;
+  summary += `Yuk dicek dulu rincian pesanannya Kak, udah pas? 📝\n`;
   summary += `═════════════════════════\n`;
-  summary += `👤 *Pemesan:* ${tempData.customer_name}\n`;
+  summary += `👤 *Nama:* ${tempData.customer_name}\n`;
   summary += `📌 *Tipe:* ${typeTitle}\n`;
   if (orderType !== 'takeaway') {
     summary += `📍 *Tujuan:* ${tempData.delivery_address}\n`;
   }
   if (tempData.notes && tempData.notes !== '-') {
-    summary += `📝 *Catatan Umum:* ${tempData.notes}\n`;
+    summary += `📝 *Catatan:* ${tempData.notes}\n`;
   }
   summary += `─────────────────────────\n`;
-  summary += `*DAFTAR ITEM:*\n`;
+  summary += `*Menu yang Dipesan:*\n`;
   for (const it of finalItems) {
     const note = it.notes ? ` _(${it.notes})_` : '';
     summary += `• ${it.quantity}x *${it.menuName}*${note} : Rp ${Number(it.subtotal).toLocaleString('id-ID')}\n`;
@@ -629,7 +628,7 @@ async function applyParsedOrderToSession({
   if (stockErrors.length > 0) {
     summary += `⚠️ _Catatan Stok:_\n${stockErrors.join('\n')}\n\n`;
   }
-  summary += `Balas *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
+  summary += `Kalau udah sesuai semua, balas *OKE* atau *YA* ya Kak biar langsung kita siapkan di dapur! 👨‍🍳🔥\n_(Atau ketik *BATAL* kalau mau diubah)_`;
 
   await sendMsg(phone, summary);
   return { status: true, message: 'AI Express order ready for confirmation' };
@@ -669,7 +668,7 @@ async function handleFinalizeOrder(
     await session.save();
     await sendMsg(
       phone,
-      `⚠️ *Pesanan tidak dapat diproses karena stok telah berubah:*\n${unavailableList.join('\n')}\n\nSilakan ketik *ORDER* untuk memilih menu kembali.`
+      `Waduh maaf banget ya Kak 🙏 Pas mau kita proses ke dapur, kebetulan stoknya baru aja habis/berubah nih:\n${unavailableList.join('\n')}\n\nKakak mau pilih menu lainnya? Bisa ketik *MENU* untuk cek daftar yang masih ready yaa 😊`
     );
     return { status: false, message: 'Stock unavailable at finalize' };
   }
@@ -757,7 +756,7 @@ async function handleFinalizeOrder(
   session.markModified('tempData');
   await session.save();
 
-  let invoiceMsg = "🎉 *PESANAN BERHASIL DIBUAT!*\n";
+  let invoiceMsg = "🎉 *Pesanan Kakak udah berhasil dibuat!*\n";
   invoiceMsg += "═════════════════════════\n";
   invoiceMsg += `No. Invoice: *#${invoiceNo}*\n`;
   invoiceMsg += `Nama: *${newOrder.customerName}*\n`;
@@ -766,21 +765,20 @@ async function handleFinalizeOrder(
   invoiceMsg += "═════════════════════════\n\n";
 
   if (xenditInvoiceUrl) {
-    invoiceMsg += "💳 *PEMBAYARAN OTOMATIS (XENDIT):*\n";
-    invoiceMsg += "Silakan buka tautan pembayaran berikut untuk membayar via:\n";
-    invoiceMsg += "• *QRIS* (GoPay, OVO, DANA, ShopeePay, LinkAja)\n";
-    invoiceMsg += "• *Virtual Account* (BCA, BRI, BNI, Mandiri, Permata)\n";
-    invoiceMsg += "• *E-Wallet / Retail Outlets*\n\n";
-    invoiceMsg += `🔗 *Link Pembayaran:*\n${xenditInvoiceUrl}\n\n`;
-    invoiceMsg += "⚡ *INFO OTOMATIS:* Begitu pembayaran berhasil, pesanan Anda *otomatis terverifikasi LUNAS* dan langsung dimasak di dapur tanpa perlu kirim bukti transfer!\n\n";
-    invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏🍽️";
+    invoiceMsg += "💳 *Pembayaran via Xendit:*\n";
+    invoiceMsg += "Kakak bisa langsung selesaikan pembayaran lewat link ini ya:\n";
+    invoiceMsg += `🔗 ${xenditInvoiceUrl}\n\n`;
+    invoiceMsg += "• Bisa bayar pakai *QRIS* (GoPay, OVO, DANA, ShopeePay)\n";
+    invoiceMsg += "• Atau lewat *Virtual Account Bank* (BCA, BRI, BNI, Mandiri, Permata)\n\n";
+    invoiceMsg += "⚡ Begitu pembayaran berhasil, pesanan Kakak otomatis terverifikasi dan langsung kami siapkan di dapur tanpa perlu kirim bukti transfer yaa!\n\n";
+    invoiceMsg += "Ketik *STATUS* kapan aja kalau mau cek status pesanannya. Terima kasih banyak ya Kak! 🙏🍽️";
 
     await sendMsg(phone, invoiceMsg);
   } else {
-    invoiceMsg += "💳 *CARA PEMBAYARAN MANUAL:*\n";
+    invoiceMsg += "💳 *Pembayaran Transfer Manual:*\n";
     invoiceMsg += `${bankInfo}\n\n`;
-    invoiceMsg += "📸 *PENTING:* Setelah transfer, silakan *kirim foto bukti transfer* langsung ke chat ini ya kak agar pesanan langsung kami proses!\n\n";
-    invoiceMsg += "Ketik *STATUS* kapan saja untuk memantau status pesanan kakak. Terima kasih! 🙏😊";
+    invoiceMsg += "📸 Setelah transfer, boleh tolong *kirim foto bukti transfernya* ke chat ini ya Kak biar pesanan Kakak langsung kita proses ke dapur!\n\n";
+    invoiceMsg += "Ketik *STATUS* kapan saja kalau mau cek perkembangan pesanannya. Makasih banyak ya Kak! 🙏😊";
 
     await sendMsg(phone, invoiceMsg);
   }
@@ -1005,7 +1003,7 @@ export async function processInboundWebhook(
 
     const welcomeTpl =
       configs.welcome_message ||
-      `Halo kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nSilakan ketik nomor pilihan berikut:\n1️⃣ *MENU* - Lihat Katalog Menu & Harga\n2️⃣ *ORDER* - Buat Pesanan Baru\n3️⃣ *STATUS* - Cek Status Pesanan\n4️⃣ *INFO* - Lokasi, Jam Buka & Rekening\n5️⃣ *ADMIN* - Bicara dengan Admin / Staf`;
+      `Halo Kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nKakak bisa langsung chat santai mau pesan apa, atau ketik pilihan ini ya:\n• *MENU* : Lihat daftar menu & harga\n• *ORDER* : Buat pesanan baru\n• *STATUS* : Cek status pesanan\n• *INFO* : Jam operasional & alamat resto\n• *ADMIN* : Ngobrol langsung dengan staf kami`;
     const welcomeMsg = welcomeTpl.replace(/{store_name}/g, storeName);
     await sendMsg(phone, welcomeMsg);
     return { status: true, message: 'Telegram /start welcome sent', replies };
@@ -1180,7 +1178,7 @@ export async function processInboundWebhook(
       latestUnpaid.proofImage = imageUrl || 'Uploaded via WA';
       await latestUnpaid.save();
 
-      const reply = `📸 *Bukti Pembayaran Diterima!*\n\nTerima kasih kak! Bukti transfer untuk pesanan *#${latestUnpaid.invoiceNo}* sudah kami terima dan sedang diverifikasi oleh admin/dapur kami.\n\nPesanan akan segera disiapkan! 🍳\nKetik *STATUS* untuk cek status pesanan kapan saja.`;
+      const reply = `Terima kasih banyak ya Kak! 📸✨\n\nBukti transfer untuk pesanan *#${latestUnpaid.invoiceNo}* sudah kami terima dan sedang dicek tim kami. Pesanan Kakak langsung kami siapkan yaa 🍳\n\nKakak bisa ketik *STATUS* kapan saja untuk pantau pesanannya.`;
       await sendMsg(phone, reply);
 
       if (adminChatId && !isSimulation) {
@@ -1201,7 +1199,7 @@ export async function processInboundWebhook(
       await session.save();
       return { status: true, message: 'Payment proof processed', replies };
     } else {
-      const reply = `Terima kasih atas kiriman gambarnya kak! 😊\nJika kakak ingin memesan makanan/minuman, silakan ketik *MENU* atau *ORDER*.`;
+      const reply = `Makasih kiriman fotonya ya Kak! 😊\nKalau Kakak mau pesan makanan atau minuman, langsung ketik aja pesanannya atau ketik *MENU* yaa~`;
       await sendMsg(phone, reply);
       return { status: true, message: 'General image received', replies };
     }
@@ -1215,7 +1213,7 @@ export async function processInboundWebhook(
     session.tempData = {};
     session.isPaused = false;
     await session.save();
-    await sendMsg(phone, `❌ Sesi pesanan sebelumnya telah dibatalkan.\n\nAda yang bisa kami bantu lagi? Ketik *MENU* untuk melihat katalog.`);
+    await sendMsg(phone, `Siap Kak, pesanan sebelumnya sudah dibatalkan ya. Santai aja, kalau mau pesan lagi atau butuh bantuan tinggal chat yaa 😊`);
     return { status: true, message: 'Session reset', replies };
   }
 
@@ -1227,10 +1225,10 @@ export async function processInboundWebhook(
       const catalog = await getFormattedMenuForBot();
       const msgToSend = catalog && catalog.trim().length > 10
         ? catalog
-        : `📋 *KATALOG MENU*\n\n_(Menu saat ini belum tersedia atau sedang diperbarui)_\n\nSilakan hubungi admin untuk informasi menu terbaru, atau ketik *INFO* untuk detail toko.`;
+        : `📋 *Daftar Menu Resto*\n\n_(Menu saat ini sedang dalam pembaruan tim dapur ya Kak)_\n\nKakak bisa tanya langsung ke staf kami lewat ketik *ADMIN*, atau ketik *INFO* yaa 😊`;
       await sendMsg(phone, msgToSend);
     } catch (err: any) {
-      await sendMsg(phone, `⚠️ Gagal memuat katalog menu. Silakan coba lagi atau ketik *INFO*.`);
+      await sendMsg(phone, `⚠️ Waduh, maaf ya Kak ada kendala pas memuat menu. Coba lagi sebentar lagi atau ketik *INFO* yaa.`);
     }
     return { status: true, message: 'Menu catalog sent', replies };
   }
@@ -1355,7 +1353,7 @@ export async function processInboundWebhook(
     session.pausedAt = new Date();
     await session.save();
 
-    await sendMsg(phone, `👨‍💼 *Menghubungkan ke Admin / Staf*\n\nPesan kakak sudah kami teruskan ke admin kami. Staf kami akan segera membalas chat kakak secara manual.\n\n_Bot dijeda sementara waktu untuk nomor ini._`);
+    await sendMsg(phone, `Halo Kak, chat Kakak sudah kami sambungkan ke staf kami yaa. Sebentar lagi staf kami akan langsung balas chat Kakak di sini 😊\n\n_(Bot dijeda sementara waktu agar Kakak bisa ngobrol langsung)_`);
 
     if (adminChatId && !isSimulation) {
       await sendTelegramMessage(
@@ -1417,14 +1415,11 @@ export async function processInboundWebhook(
         session.markModified('tempData');
         await session.save();
 
-        let guide = "📝 *PILIH MENU MAKANAN / MINUMAN*\n";
-        guide += "═════════════════════════\n";
-        guide += "✨ *Pesan Cepat AI (Natural Chat):*\n";
-        guide += "Kakak bisa langsung ketik santai apa yang ingin dipesan, contoh:\n";
-        guide += "• _\"Pesen Kopi Aren 2 meja 3\"_\n";
-        guide += "• _\"Ayam Geprek 2 pedes banget, Es Teh Manis 1\"_\n\n";
-        guide += "Atau ketik kode/nama menu yang ingin dipesan (contoh: *M1 2*):\n";
-        guide += "_(Ketik *BATAL* kapan saja jika ingin keluar)_";
+        let guide = "Mau pesan apa nih Kak hari ini? 🍽️✨\n\n";
+        guide += "Kakak bisa langsung ketik santai apa yang mau dipesan, contohnya:\n";
+        guide += "• _\"Pesen Kopi Aren 2 di meja 3\"_\n";
+        guide += "• _\"Ayam Geprek 2 pedes banget, Es Teh Manis 1 bungkus\"_\n\n";
+        guide += "Atau kalau mau intip daftar lengkapnya dulu, ketik *MENU* yaa 😊";
 
         await sendMsg(phone, guide);
         return { status: true, message: 'Ordering guide sent', replies };
@@ -1477,7 +1472,7 @@ export async function processInboundWebhook(
       }
 
       // Default Welcome Message
-      const welcomeTpl = configs.welcome_message || `Halo kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nSilakan ketik nomor pilihan berikut:\n1️⃣ *MENU* - Lihat Katalog Menu & Harga\n2️⃣ *ORDER* - Buat Pesanan Baru\n3️⃣ *STATUS* - Cek Status Pesanan\n4️⃣ *INFO* - Lokasi, Jam Buka & Rekening\n5️⃣ *ADMIN* - Bicara dengan Admin / Staf`;
+      const welcomeTpl = configs.welcome_message || `Halo Kak! Selamat datang di *{store_name}* 🍽️\nAda yang bisa kami bantu hari ini?\n\nKakak bisa langsung chat santai mau pesan apa, atau ketik pilihan ini ya:\n• *MENU* : Lihat daftar menu & harga\n• *ORDER* : Buat pesanan baru\n• *STATUS* : Cek status pesanan\n• *INFO* : Jam operasional & alamat resto\n• *ADMIN* : Ngobrol langsung dengan staf kami`;
       const welcomeMsg = welcomeTpl.replace(/{store_name}/g, storeName);
       await sendMsg(phone, welcomeMsg);
       return { status: true, message: 'Welcome sent', replies };
@@ -1492,7 +1487,7 @@ export async function processInboundWebhook(
         if (currentItems.length === 0) {
           await sendMsg(
             phone,
-            "⚠️ Keranjang belanja kakak masih kosong. Silakan ketik nama menu yang ingin dipesan (ketik *MENU* untuk katalog):"
+            "Keranjang Kakak masih kosong nih. Yuk ketik menu yang mau dipesan (atau ketik *MENU* buat intip pilihannya yaa):"
           );
           return { status: true, message: 'Cart empty', replies };
         }
@@ -1501,17 +1496,17 @@ export async function processInboundWebhook(
         session.markModified('tempData');
         await session.save();
 
-        let reply = "✅ *Daftar Item Pesanan Kakak:*\n";
+        let reply = "Sip, ini daftar pesanan Kakak sejauh ini ya: ✨\n";
         for (const it of currentItems) {
           reply += `• ${it.menuName} (${it.quantity}x @ Rp ${Number(it.price).toLocaleString('id-ID')}) = *Rp ${Number(it.subtotal).toLocaleString('id-ID')}*\n`;
         }
         reply += `Subtotal: *Rp ${Number(tempData.subtotal).toLocaleString('id-ID')}*\n\n`;
-        reply += "═══════════════════════\n";
-        reply += "Selanjutnya, pesanan ini untuk:\n";
-        reply += "1️⃣ *Makan di Tempat (Dine-In)*\n";
-        reply += "2️⃣ *Bungkus (Takeaway)*\n";
-        reply += "3️⃣ *Pesan Antar (Delivery)*\n\n";
-        reply += "Silakan balas pilihan tipe pesanan kakak (1 / 2 / 3):";
+        reply += "─────────────────────────\n";
+        reply += "Mau dinikmati di mana nih Kak?\n";
+        reply += "1️⃣ Makan di Tempat (Dine-In)\n";
+        reply += "2️⃣ Bungkus bawa pulang (Takeaway)\n";
+        reply += "3️⃣ Pesan antar ke alamat (Delivery)\n\n";
+        reply += "Ketik *1*, *2*, atau *3* ya Kak 😊";
 
         await sendMsg(phone, reply);
         return { status: true, message: 'Proceeded to order type', replies };
@@ -1523,19 +1518,19 @@ export async function processInboundWebhook(
         if (currentItems.length === 0) {
           await sendMsg(
             phone,
-            "🛒 *Keranjang Belanja:* Masih Kosong\n\nSilakan ketik nama menu yang ingin dipesan (ketik *MENU* untuk katalog):"
+            "Keranjang belanja Kakak masih kosong nih 😊\nYuk ketik menu yang mau dipesan, atau ketik *MENU* untuk lihat daftar yaa!"
           );
           return { status: true, message: 'Cart empty', replies };
         }
 
-        let cartMsg = "🛒 *RINCIAN KERANJANG BELANJA:*\n";
+        let cartMsg = "🛒 *Isi Keranjang Belanja Kakak:*\n";
         cartMsg += "═════════════════════════\n";
         for (const it of currentItems) {
           cartMsg += `• ${it.menuName}\n  ${it.quantity}x @ Rp ${Number(it.price).toLocaleString('id-ID')} = *Rp ${Number(it.subtotal).toLocaleString('id-ID')}*\n`;
         }
         cartMsg += "─────────────────────────\n";
         cartMsg += `💰 *Subtotal: Rp ${Number(tempData.subtotal).toLocaleString('id-ID')}* (${tempData.total_items} item)\n\n`;
-        cartMsg += "Ketik menu lain untuk menambah, atau ketik *SELESAI* untuk proses pesanan:";
+        cartMsg += "Mau nambah menu lain? Tinggal ketik aja ya. Kalau sudah selesai, ketik *SELESAI* ya Kak 😊";
 
         await sendMsg(phone, cartMsg);
         return { status: true, message: 'Cart displayed', replies };
@@ -1552,7 +1547,7 @@ export async function processInboundWebhook(
 
         await sendMsg(
           phone,
-          "🗑️ Keranjang telah dikosongkan.\nSilakan ketik menu baru yang ingin dipesan (atau ketik *MENU* untuk katalog):"
+          "Siap, keranjang belanja sudah dikosongkan ya Kak 👍\nSilakan ketik menu baru yang ingin dipesan (atau ketik *MENU* yaa):"
         );
         return { status: true, message: 'Cart cleared', replies };
       }
@@ -1590,12 +1585,12 @@ export async function processInboundWebhook(
         session.markModified('tempData');
         await session.save();
 
-        let porsiMsg = `🍽️ *${matchedMenu.name}* (${matchedMenu.code})\n`;
-        porsiMsg += `💰 Harga: *Rp ${Number(matchedMenu.price).toLocaleString('id-ID')}* / porsi\n`;
+        let porsiMsg = `Mau pesan berapa porsi *${matchedMenu.name}*-nya Kak? 😊\n`;
+        porsiMsg += `💰 Rp ${Number(matchedMenu.price).toLocaleString('id-ID')} / porsi\n`;
         if (matchedMenu.description) {
           porsiMsg += `_${matchedMenu.description}_\n`;
         }
-        porsiMsg += `\nBerapa porsi yang ingin kakak pesan? (Balas dengan angka porsi, contoh: *1* atau *2*):`;
+        porsiMsg += `\nCukup balas dengan angka porsi yaa (contoh: *1* atau *2*):`;
 
         await sendMsg(phone, porsiMsg);
         return { status: true, message: 'Quantity prompt sent', replies };
@@ -1742,7 +1737,7 @@ export async function processInboundWebhook(
         tempData.customer_name = data.pushName || data.username || 'Pelanggan';
         await sendMsg(
           phone,
-          `🍽️ *Makan di Tempat (Dine-In)*\nPemesan: *${tempData.customer_name}*\n\nSilakan ketik nomor meja kakak (contoh: *Meja 03*):`
+          `Siap, makan di tempat (Dine-In) ya Kak 🍽️\n\nBtw Kakak lagi duduk di meja berapa nih? Cukup ketik nomor mejanya ya (contoh: *Meja 3*):`
         );
       } else if (chosenType === 'takeaway') {
         const custName = data.pushName || data.username || 'Pelanggan';
@@ -1758,15 +1753,15 @@ export async function processInboundWebhook(
         session.markModified('tempData');
         await session.save();
 
-        let summary = `🧾 *RINGKASAN PESANAN TAKEAWAY*\n`;
+        let summary = `Yuk dicek dulu pesanannya Kak, udah pas? 🛍️\n`;
         summary += `═════════════════════════\n`;
-        summary += `👤 *Pemesan:* ${custName} (Akun Telegram)\n`;
-        summary += `📌 *Tipe:* Takeaway (Bungkus Bawa Pulang)\n`;
+        summary += `👤 *Nama:* ${custName}\n`;
+        summary += `📌 *Tipe:* Bungkus Bawa Pulang (Takeaway)\n`;
         if (tempData.notes && tempData.notes !== '-') {
           summary += `📝 *Catatan:* ${tempData.notes}\n`;
         }
         summary += `─────────────────────────\n`;
-        summary += `*DAFTAR ITEM:*\n`;
+        summary += `*Menu yang Dipesan:*\n`;
         for (const it of (tempData.items || [])) {
           const note = it.notes ? ` _(${it.notes})_` : '';
           summary += `• ${it.quantity}x *${it.menuName}*${note} : Rp ${Number(it.subtotal).toLocaleString('id-ID')}\n`;
@@ -1774,7 +1769,7 @@ export async function processInboundWebhook(
         summary += `─────────────────────────\n`;
         summary += `💰 *TOTAL BAYAR: Rp ${Number(tempData.grand_total).toLocaleString('id-ID')}*\n`;
         summary += `═════════════════════════\n\n`;
-        summary += `Ketik *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
+        summary += `Kalau udah oke, ketik *YA* atau *OKE* ya Kak biar langsung kita siapkan di dapur! 👨‍🍳🔥\n_(Atau ketik *BATAL* kalau mau diubah)_`;
 
         await sendMsg(phone, summary);
         return { status: true, message: 'Takeaway fast confirmed with telegram name', replies };
@@ -1782,7 +1777,7 @@ export async function processInboundWebhook(
         tempData.customer_name = data.pushName || data.username || 'Pelanggan';
         await sendMsg(
           phone,
-          `🛵 *Pesan Antar (Delivery)*\nPemesan: *${tempData.customer_name}*\n\nSilakan ketik alamat pengiriman kakak ya:`
+          `Siap, pesan antar (Delivery) ya Kak 🛵✨\n\nBoleh minta alamat lengkap pengirimannya Kak? _(Sertakan patokan kalau ada yaa)_:`
         );
       }
       return { status: true, message: 'Order type chosen', replies };
@@ -1816,15 +1811,15 @@ export async function processInboundWebhook(
           session.markModified('tempData');
           await session.save();
 
-          let summary = `🧾 *RINGKASAN PESANAN DINE-IN*\n`;
+          let summary = `Yuk dicek dulu pesanannya Kak, udah pas? 🍽️\n`;
           summary += `═════════════════════════\n`;
-          summary += `👤 *Pemesan:* ${tempData.customer_name}\n`;
-          summary += `📍 *Tujuan:* ${tempData.delivery_address}\n`;
+          summary += `👤 *Nama:* ${tempData.customer_name}\n`;
+          summary += `📍 *Meja:* ${tempData.delivery_address}\n`;
           if (tempData.notes && tempData.notes !== '-') {
             summary += `📝 *Catatan:* ${tempData.notes}\n`;
           }
           summary += `─────────────────────────\n`;
-          summary += `*DAFTAR ITEM:*\n`;
+          summary += `*Menu yang Dipesan:*\n`;
           for (const it of tempData.items) {
             const note = it.notes ? ` _(${it.notes})_` : '';
             summary += `• ${it.quantity}x *${it.menuName}*${note} : Rp ${Number(it.subtotal).toLocaleString('id-ID')}\n`;
@@ -1832,7 +1827,7 @@ export async function processInboundWebhook(
           summary += `─────────────────────────\n`;
           summary += `💰 *TOTAL BAYAR: Rp ${Number(tempData.grand_total).toLocaleString('id-ID')}*\n`;
           summary += `═════════════════════════\n\n`;
-          summary += `Ketik *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
+          summary += `Kalau udah oke, ketik *YA* atau *OKE* ya Kak biar langsung kita siapkan di dapur! 👨‍🍳🔥\n_(Atau ketik *BATAL* kalau mau diubah)_`;
 
           await sendMsg(phone, summary);
           return { status: true, message: 'Dine-in table set, jumped to confirm', replies };
@@ -1855,15 +1850,15 @@ export async function processInboundWebhook(
           session.markModified('tempData');
           await session.save();
 
-          let summary = `🧾 *RINGKASAN PESANAN DELIVERY*\n`;
+          let summary = `Yuk dicek dulu pesanannya Kak, udah pas? 🛵\n`;
           summary += `═════════════════════════\n`;
-          summary += `👤 *Pemesan:* ${tempData.customer_name}\n`;
+          summary += `👤 *Nama:* ${tempData.customer_name}\n`;
           summary += `📍 *Alamat:* ${tempData.delivery_address}\n`;
           if (tempData.notes && tempData.notes !== '-') {
             summary += `📝 *Catatan:* ${tempData.notes}\n`;
           }
           summary += `─────────────────────────\n`;
-          summary += `*DAFTAR ITEM:*\n`;
+          summary += `*Menu yang Dipesan:*\n`;
           for (const it of tempData.items) {
             const note = it.notes ? ` _(${it.notes})_` : '';
             summary += `• ${it.quantity}x *${it.menuName}*${note} : Rp ${Number(it.subtotal).toLocaleString('id-ID')}\n`;
@@ -1873,7 +1868,7 @@ export async function processInboundWebhook(
           summary += `Ongkir: *Rp 10.000*\n`;
           summary += `💰 *TOTAL BAYAR: Rp ${Number(tempData.grand_total).toLocaleString('id-ID')}*\n`;
           summary += `═════════════════════════\n\n`;
-          summary += `Ketik *YA* atau *OKE* untuk langsung memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:`;
+          summary += `Kalau udah oke, ketik *YA* atau *OKE* ya Kak biar langsung kita proses! 👨‍🍳🔥\n_(Atau ketik *BATAL* kalau mau diubah)_`;
 
           await sendMsg(phone, summary);
           return { status: true, message: 'Delivery address set, jumped to confirm', replies };
@@ -1885,7 +1880,7 @@ export async function processInboundWebhook(
       session.markModified('tempData');
       await session.save();
 
-      let notePrompt = `📝 Ada *catatan khusus* untuk pesanan ini?\n(Contoh: *Sambal dipisah, es sedikit, tanpa daun bawang*).\n\nKetik catatan kakak (atau balas *-* jika tanpa catatan):`;
+      let notePrompt = `Ada *catatan khusus* untuk pesanannya Kak? 😊\n(Misalnya: *pedas sedang, es sedikit, sambal dipisah*).\n\nKetik catatannya ya Kak (atau balas *-* jika tanpa catatan):`;
       await sendMsg(phone, notePrompt);
       return { status: true, message: 'Name/address received, prompt notes', replies };
     }
@@ -1919,14 +1914,16 @@ export async function processInboundWebhook(
           ? 'Takeaway (Bungkus)'
           : 'Delivery (Pesan Antar)';
 
-      let summary = "🧾 *RINGKASAN PESANAN KAKAK*\n";
+      let summary = "Yuk dicek dulu rincian pesanannya Kak, udah pas? 📝\n";
       summary += "═════════════════════════\n";
-      summary += `👤 *Pemesan:* ${tempData.customer_name}\n`;
+      summary += `👤 *Nama:* ${tempData.customer_name}\n`;
       summary += `📌 *Tipe:* ${typeTitle}\n`;
       summary += `📍 *Tujuan/Meja:* ${tempData.delivery_address}\n`;
-      summary += `📝 *Catatan:* ${tempData.notes}\n`;
+      if (tempData.notes && tempData.notes !== '-') {
+        summary += `📝 *Catatan:* ${tempData.notes}\n`;
+      }
       summary += "─────────────────────────\n";
-      summary += "*DAFTAR ITEM:*\n";
+      summary += "*Menu yang Dipesan:*\n";
       for (const it of items) {
         const itemPrice = 'Rp ' + Number(it.price).toLocaleString('id-ID');
         const itemSub = 'Rp ' + Number(it.subtotal).toLocaleString('id-ID');
@@ -1939,8 +1936,7 @@ export async function processInboundWebhook(
       }
       summary += `💰 *TOTAL BAYAR: Rp ${grandTotal.toLocaleString('id-ID')}*\n`;
       summary += "═════════════════════════\n\n";
-      summary += "Apakah data pesanan di atas sudah benar?\n";
-      summary += "Ketik *YA* atau *OKE* untuk memproses pesanan ke dapur, atau *BATAL* untuk membatalkan:";
+      summary += "Kalau udah pas semua, balas *YA* atau *OKE* ya Kak biar langsung kita siapkan di dapur! 👨‍🍳🔥\n_(Atau ketik *BATAL* kalau mau diubah)_";
 
       await sendMsg(phone, summary);
       return { status: true, message: 'Summary sent', replies };
