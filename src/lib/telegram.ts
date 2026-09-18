@@ -51,6 +51,15 @@ export const TELEGRAM_CONFIRM_KEYBOARD = {
   one_time_keyboard: true,
 };
 
+export const TELEGRAM_EXPRESS_CONFIRM_KEYBOARD = {
+  keyboard: [
+    [{ text: '✅ YA, Buat Pesanan' }, { text: '➕ Tambah Menu' }],
+    [{ text: '❌ Batal' }],
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+};
+
 export const TELEGRAM_CANCEL_KEYBOARD = {
   keyboard: [
     [{ text: '❌ Batal' }],

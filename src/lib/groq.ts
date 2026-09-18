@@ -168,6 +168,225 @@ async function askGroqFallback({
   }
 }
 
+export interface ParsedOrderItem {
+  menuId?: string;
+  menuCode: string;
+  menuName: string;
+  price: number;
+  quantity: number;
+  subtotal: number;
+  notes?: string;
+}
+
+export interface ParsedOrderResult {
+  isOrderIntent: boolean;
+  items: ParsedOrderItem[];
+  orderType: 'dine_in' | 'takeaway' | 'delivery' | null;
+  tableNumber: string | null;
+  deliveryAddress: string | null;
+  notes: string | null;
+  aiFriendlySummary?: string;
+  rawJson?: any;
+}
+
+/**
+ * Intelligent Natural Language Order Parser powered by Groq LLM.
+ * Extracts order intent, menu items, quantities, custom notes, order type, and table number.
+ */
+export async function parseOrderWithGroq({
+  userMessage,
+  customerName,
+  configs,
+}: GroqChatOptions): Promise<ParsedOrderResult | null> {
+  const cfg = configs || (await getBotConfigs());
+  if (!isGroqEnabled(cfg)) {
+    return null;
+  }
+
+  const apiKey = getGroqApiKey(cfg);
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    await connectDB();
+    const activeMenus = await Menu.find({ isAvailable: true }).sort({ categoryId: 1, code: 1 });
+    if (!activeMenus || activeMenus.length === 0) {
+      return null;
+    }
+
+    const menuCatalog = activeMenus.map((m: any) => {
+      const stock = m.trackStock ? `(Stok: ${m.stock})` : '';
+      return `[${m.code}] "${m.name}" - Rp ${Number(m.price).toLocaleString('id-ID')} ${stock}`;
+    }).join('\n');
+
+    const storeName = cfg.store_name || 'Leafly Resto';
+
+    const systemPrompt = `Kamu adalah AI Kasir & Waiter restoran "${storeName}".
+Tugasmu adalah menganalisis pesan pelanggan (${customerName ? `bernama Kak ${customerName}` : 'pelanggan'}) dan mengekstrak rincian pesanan ke dalam format JSON.
+
+Daftar Menu Restoran yang Tersedia (Kode, Nama, Harga):
+${menuCatalog}
+
+Instruksi Analisis:
+1. isOrderIntent: 
+   - TRUE jika pelanggan bermaksud memesan/order makanan/minuman (misal: "pesen kopi aren 2", "mau order ayam geprek pedes 1", "es teh 2 di meja 4", "bungkus nasi goreng", "pesan M1 2").
+   - FALSE jika pelanggan HANYA menyapa ("halo", "p"), bertanya info resto ("buka jam berapa?", "rekomendasi apa ya?"), komplain, atau minta bantuan admin.
+
+2. items: Ekstrak daftar menu yang dipesan:
+   - menuCode: Kode resmi dari daftar menu di atas (misal "M1", "D2"). Wajib cocokkan ke menu paling relevan. Jika nama mirip/sinonim (misal "kopi aren" -> Kopi Susu Aren, "geprek" -> Ayam Geprek), gunakan kode resminya.
+   - menuName: Nama resmi menu dari daftar di atas.
+   - quantity: Jumlah porsi (integer, minimal 1). Jika disebutkan kata "satu/dua/tiga" ubah ke angka 1, 2, 3.
+   - notes: Catatan khusus per menu (misal: "pedes banget", "less sugar", "es sedikit", "sambal dipisah", "panas"). Kosongkan "" jika tidak ada.
+
+3. orderType:
+   - "dine_in" jika ada kata meja, "di tempat", "di sini", "dine in", "makan di sini".
+   - "takeaway" jika ada kata "bungkus", "takeaway", "bawa pulang".
+   - "delivery" jika ada kata "antar", "kirim", "delivery", atau menyebut alamat.
+   - null jika belum disebutkan.
+
+4. tableNumber:
+   - Jika orderType "dine_in" dan pelanggan menyebut nomor meja (misal "meja 4", "meja 04", "table 2", "di meja 3"), ekstrak nomor mejanya (format standar: "MEJA 04" atau "MEJA 2").
+   - null jika belum menyebut nomor meja.
+
+5. deliveryAddress:
+   - Alamat tujuan pengiriman jika delivery, atau null jika tidak ada.
+
+6. notes:
+   - Catatan umum pesanan jika ada, atau null.
+
+7. aiFriendlySummary:
+   - Kalimat konfirmasi ramah ala waiter restoran yang menyapa Kak ${customerName || ''}, merincikan pesanan dan meja/tipe secara hangat dan ringkas dengan emoji ramah.
+
+Format output WAJIB HANYA JSON valid tanpa markdown/backticks/teks lain:
+{
+  "isOrderIntent": true,
+  "items": [
+    { "menuCode": "M1", "menuName": "Ayam Geprek", "quantity": 2, "notes": "Pedes" }
+  ],
+  "orderType": "dine_in",
+  "tableNumber": "MEJA 04",
+  "deliveryAddress": null,
+  "notes": null,
+  "aiFriendlySummary": "Siap Kak! Pesanan untuk Meja 04 sudah kami catat..."
+}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s max
+
+    const model = getGroqModel(cfg);
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 600,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn('[Groq] parseOrderWithGroq API error:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    let rawContent = data.choices?.[0]?.message?.content?.trim() || '';
+    if (rawContent.includes('```json')) {
+      rawContent = rawContent.replace(/```json\s*([\s\S]*?)\s*```/gi, '$1').trim();
+    } else if (rawContent.includes('```')) {
+      rawContent = rawContent.replace(/```\s*([\s\S]*?)\s*```/gi, '$1').trim();
+    }
+
+    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return null;
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      // Try to clean potential trailing comma or control chars
+      const sanitized = jsonMatch[0]
+        .replace(/,\s*([\]}])/g, '$1')
+        .replace(/[\u0000-\u001F]+/g, ' ');
+      parsed = JSON.parse(sanitized);
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    const isOrderIntent = Boolean(parsed.isOrderIntent);
+    if (!isOrderIntent || !Array.isArray(parsed.items) || parsed.items.length === 0) {
+      return {
+        isOrderIntent,
+        items: [],
+        orderType: parsed.orderType || null,
+        tableNumber: parsed.tableNumber || null,
+        deliveryAddress: parsed.deliveryAddress || null,
+        notes: parsed.notes || null,
+        aiFriendlySummary: parsed.aiFriendlySummary || '',
+      };
+    }
+
+    // Cross-validate and enrich items with database menu data
+    const validItems: ParsedOrderItem[] = [];
+    for (const rawItem of parsed.items) {
+      const targetCode = String(rawItem.menuCode || '').toUpperCase().trim();
+      const targetName = String(rawItem.menuName || '').toLowerCase().trim();
+
+      // Find matching menu in database
+      const matchedMenu = activeMenus.find((m: any) => {
+        if (targetCode && m.code.toUpperCase() === targetCode) return true;
+        if (targetName && m.name.toLowerCase() === targetName) return true;
+        if (targetName && (m.name.toLowerCase().includes(targetName) || targetName.includes(m.name.toLowerCase()))) return true;
+        return false;
+      });
+
+      if (matchedMenu) {
+        const qty = Math.max(1, parseInt(rawItem.quantity, 10) || 1);
+        const price = Number(matchedMenu.price) || 0;
+        validItems.push({
+          menuId: matchedMenu._id ? matchedMenu._id.toString() : undefined,
+          menuCode: matchedMenu.code,
+          menuName: matchedMenu.name,
+          price: price,
+          quantity: qty,
+          subtotal: price * qty,
+          notes: rawItem.notes ? String(rawItem.notes).trim() : '',
+        });
+      }
+    }
+
+    return {
+      isOrderIntent: validItems.length > 0 ? true : isOrderIntent,
+      items: validItems,
+      orderType: parsed.orderType || null,
+      tableNumber: parsed.tableNumber || null,
+      deliveryAddress: parsed.deliveryAddress || null,
+      notes: parsed.notes || null,
+      aiFriendlySummary: parsed.aiFriendlySummary || '',
+      rawJson: parsed,
+    };
+  } catch (err: any) {
+    console.error('[Groq] parseOrderWithGroq exception:', err.message || err);
+    return null;
+  }
+}
+
 export interface SentimentResult {
   sentiment: 'positive' | 'neutral' | 'negative';
   score: number; // -1.0 (very negative) to 1.0 (very positive)
